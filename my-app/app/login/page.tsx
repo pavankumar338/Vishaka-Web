@@ -26,7 +26,7 @@ export default function AdminLogin() {
         setError("");
 
         setTimeout(() => {
-            if (username === "ADMIN" && password === "VISHAKA@2026") {
+            if (username.toUpperCase() === "ADMIN" && password.toUpperCase() === "VISHAKA@2026") {
                 localStorage.setItem("vishaka_admin_session", "true");
                 router.push("/admin");
             } else {
