@@ -32,24 +32,12 @@ export default function AdminLogin() {
         setError("");
 
         setTimeout(() => {
-            if (role === "admin") {
-                if (username.toUpperCase() === "ADMIN" && password.toUpperCase() === "VISHAKA@2026") {
-                    localStorage.setItem("vishaka_admin_session", "true");
-                    localStorage.setItem("vishaka_role", "admin");
-                    router.push("/admin");
-                } else {
-                    setError("ACCESS DENIED: INVALID ADMIN CREDENTIALS");
-                    setIsLoading(false);
-                }
-            } else if (role === "volunteer") {
-                if (username.toUpperCase() === "VOLUNTEER" && password.toUpperCase() === "UGADI@2026") {
-                    localStorage.setItem("vishaka_admin_session", "true");
-                    localStorage.setItem("vishaka_role", "volunteer");
-                    router.push("/admin/scan");
-                } else {
-                    setError("ACCESS DENIED: INVALID VOLUNTEER CREDENTIALS");
-                    setIsLoading(false);
-                }
+            if (username === "admin" && password === "Vishaka@2026") {
+                localStorage.setItem("vishaka_admin_session", "true");
+                router.push("/admin");
+            } else {
+                setError("ACCESS DENIED: INVALID ADMINISTRATIVE CREDENTIALS");
+                setIsLoading(false);
             }
         }, 1200);
     };
