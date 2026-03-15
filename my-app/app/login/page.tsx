@@ -9,14 +9,20 @@ import Link from "next/link";
 export default function AdminLogin() {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [role, setRole] = useState<"admin" | "volunteer">("volunteer");
     const [error, setError] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
         const isAdmin = localStorage.getItem("vishaka_admin_session");
+        const role = localStorage.getItem("vishaka_role");
         if (isAdmin === "true") {
-            router.push("/admin");
+            if (role === "volunteer") {
+                router.push("/admin/scan");
+            } else {
+                router.push("/admin");
+            }
         }
     }, [router]);
 
@@ -26,12 +32,24 @@ export default function AdminLogin() {
         setError("");
 
         setTimeout(() => {
-            if (username.toUpperCase() === "ADMIN" && password.toUpperCase() === "VISHAKA@2026") {
-                localStorage.setItem("vishaka_admin_session", "true");
-                router.push("/admin");
-            } else {
-                setError("ACCESS DENIED: INVALID ADMINISTRATIVE CREDENTIALS");
-                setIsLoading(false);
+            if (role === "admin") {
+                if (username.toUpperCase() === "ADMIN" && password.toUpperCase() === "VISHAKA@2026") {
+                    localStorage.setItem("vishaka_admin_session", "true");
+                    localStorage.setItem("vishaka_role", "admin");
+                    router.push("/admin");
+                } else {
+                    setError("ACCESS DENIED: INVALID ADMIN CREDENTIALS");
+                    setIsLoading(false);
+                }
+            } else if (role === "volunteer") {
+                if (username.toUpperCase() === "VOLUNTEER" && password.toUpperCase() === "UGADI@2026") {
+                    localStorage.setItem("vishaka_admin_session", "true");
+                    localStorage.setItem("vishaka_role", "volunteer");
+                    router.push("/admin/scan");
+                } else {
+                    setError("ACCESS DENIED: INVALID VOLUNTEER CREDENTIALS");
+                    setIsLoading(false);
+                }
             }
         }, 1200);
     };
@@ -78,8 +96,27 @@ export default function AdminLogin() {
                     <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50 group-hover:opacity-100 transition-opacity duration-1000" />
 
                     <form onSubmit={handleLogin} className="space-y-8 md:space-y-10">
+                        <div className="flex bg-white/[0.03] p-1.5 rounded-2xl border border-white/5">
+                            <button
+                                type="button"
+                                onClick={() => { setRole("admin"); setError(""); }}
+                                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-2 ${role === "admin" ? "bg-amber-500 text-black shadow-lg" : "text-white/40 hover:text-white"}`}
+                            >
+                                <ShieldCheck size={14} /> Admin
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setRole("volunteer"); setError(""); }}
+                                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-2 ${role === "volunteer" ? "bg-amber-500 text-black shadow-lg" : "text-white/40 hover:text-white"}`}
+                            >
+                                <User size={14} /> Volunteer
+                            </button>
+                        </div>
+
                         <div className="space-y-3 md:space-y-4">
-                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em] ml-1">Administrator ID</label>
+                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em] ml-1">
+                                {role === 'admin' ? 'Administrator ID' : 'Volunteer ID'}
+                            </label>
                             <div className="relative">
                                 <User className="absolute left-5 top-1/2 -translate-y-1/2 text-white/20" size={18} />
                                 <input

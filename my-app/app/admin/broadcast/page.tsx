@@ -19,8 +19,13 @@ export default function MailsPage() {
 
     useEffect(() => {
         const isAdmin = localStorage.getItem("vishaka_admin_session");
+        const role = localStorage.getItem("vishaka_role");
         if (isAdmin !== "true") {
             router.push("/login");
+            return;
+        }
+        if (role === "volunteer") {
+            router.push("/admin/scan");
             return;
         }
         fetchParticipants();
@@ -39,9 +44,12 @@ export default function MailsPage() {
             const mappedData: Participant[] = (data || []).map(item => ({
                 id: item.id,
                 name: item.name,
-                email: item.email,
-                college: item.college,
-                team: item.team,
+                registerNumber: item.register_number || "",
+                year: item.year || "",
+                department: item.department || "",
+                section: item.section || "",
+                game: item.game || "",
+                email: item.email || "",
                 status: item.status,
                 event: item.event,
                 registrationDate: new Date(item.created_at).toLocaleDateString(),
@@ -73,7 +81,7 @@ export default function MailsPage() {
     const filteredParticipants = participants.filter(
         (p) =>
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             p.id.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -87,33 +95,48 @@ export default function MailsPage() {
         let successCount = 0;
         let failCount = 0;
 
+        const windowUrl = window.location.origin;
+        const defaultUrl = windowUrl.includes('localhost')
+            ? `http://10.136.9.91:3000`
+            : windowUrl;
+
         for (const p of selectedParticipants) {
             try {
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(defaultUrl + '/p/' + p.id)}`;
                 const response = await fetch('/api/send-email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         to: p.email,
-                        subject: `Registration Acknowledgment - ${p.event}`,
+                        subject: `Confirmation of Registration – Ugadi Utsav 2K26 🎉`,
                         html: `
-                            <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 40px; border: 1px solid #111; border-radius: 24px; background: #050505; color: #fff;">
-                                <div style="margin-bottom: 30px; border-left: 2px solid #f59e0b; padding-left: 20px;">
-                                    <p style="margin: 0; font-size: 10px; font-weight: 900; letter-spacing: 0.3em; color: #f59e0b; text-transform: uppercase;">System Dispatch</p>
-                                    <h1 style="margin: 5px 0 0 0; color: #fff; font-size: 28px; font-weight: 900; letter-spacing: -0.02em;">Digital Identity Confirmed.</h1>
+                            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 30px; border: 1px solid #eaeaea; border-radius: 12px; background: #ffffff; color: #333333;">
+                                <h2 style="color: #d97706;">Confirmation of Registration – Ugadi Utsav 2K26 🎉</h2>
+                                <p style="font-size: 16px;">Dear <strong>${p.name}</strong>,</p>
+                                <p style="font-size: 16px;">Greetings!</p>
+                                <p style="font-size: 16px; line-height: 1.5;">Thank you for registering for Ugadi Utsav 2K26. We are excited to have you as a participant in this celebration.</p>
+                                
+                                <div style="background: #fffbeb; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #fde68a;">
+                                    <h3 style="margin-top: 0; color: #b45309;">Registration Details:</h3>
+                                    <p style="margin: 8px 0; font-size: 15px;"><strong>Name:</strong> ${p.name}</p>
+                                    <p style="margin: 8px 0; font-size: 15px;"><strong>Participant ID:</strong> <span style="font-family: monospace; background: #fef3c7; padding: 2px 6px; border-radius: 4px;">${p.id}</span></p>
+                                    <p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game/Event:</strong> ${p.game || 'N/A'}</p>
                                 </div>
-                                <p style="color: #666; font-size: 14px; line-height: 1.6; font-weight: 500;">Greetings ${p.name}, your credentials for Vishaka Events 2026 have been successfully generated and synchronized.</p>
-                                <div style="background: #0a0a0a; padding: 30px; border-radius: 20px; margin: 30px 0; border: 1px solid #111;">
-                                    <p style="margin: 0 0 15px 0; font-size: 9px; color: #444; text-transform: uppercase; font-weight: 900; letter-spacing: 0.2em;">Identity Framework</p>
-                                    <div style="margin-bottom: 15px;">
-                                        <p style="margin: 0; font-size: 11px; color: #333; text-transform: uppercase; font-weight: 900; letter-spacing: 0.1em;">Unique_Tag</p>
-                                        <p style="margin: 5px 0; color: #f59e0b; font-family: monospace; font-weight: 900; font-size: 16px;">${p.id}</p>
-                                    </div>
-                                    <div style="border-top: 1px solid #111; padding-top: 15px;">
-                                        <p style="margin: 0; color: #fff; font-size: 13px; font-weight: 700;">${p.team}</p>
-                                        <p style="margin: 5px 0 0 0; color: #444; font-size: 11px; font-weight: 900; text-transform: uppercase;">${p.college}</p>
-                                    </div>
+
+                                <div style="text-align: center; margin: 30px 0;">
+                                    <p style="font-size: 15px; font-weight: bold; color: #444;">Your Entry Pass</p>
+                                    <img src="${qrUrl}" alt="QR Code" style="width: 200px; height: 200px; border: 4px solid #f59e0b; border-radius: 16px; padding: 10px; background: #fff;" />
                                 </div>
-                                <p style="color: #444; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; text-align: center; margin-top: 40px;">© 2026 VISHAKA SYSTEM ARCHITECTURE</p>
+
+                                <p style="font-size: 15px; line-height: 1.5;">Please keep your QR safe. You can also present the QR code attached for quick check-in at the venue.</p>
+                                
+                                <p style="font-size: 15px; line-height: 1.5;">We look forward to your enthusiastic participation and hope you have a wonderful experience at Ugadi Utsav 2K26.</p>
+                                
+                                <p style="font-size: 15px; line-height: 1.5;">If you have any queries, feel free to contact the organizing team.</p>
+                                
+                                <br />
+                                <p style="font-size: 15px; margin-bottom: 0;">Best regards,</p>
+                                <p style="font-size: 16px; font-weight: bold; margin-top: 5px; color: #d97706;">Ugadi Utsav 2K26  Organized by Vishaka Club</p>
                             </div>
                         `
                     }),
@@ -265,11 +288,11 @@ export default function MailsPage() {
                                             <span className="font-black text-white text-sm tracking-widest uppercase">{p.name}</span>
                                             <span className="text-[9px] bg-amber-500/5 border border-amber-500/10 px-3 py-1 rounded-lg text-amber-500 font-mono font-black tracking-widest">{p.id}</span>
                                         </div>
-                                        <div className="text-[10px] text-white/20 font-black uppercase tracking-[0.3em] font-mono">{p.email}</div>
+                                        <div className="text-[10px] text-white/20 font-black uppercase tracking-[0.3em] font-mono">{p.registerNumber}</div>
                                     </div>
                                     <div className="flex flex-col items-start md:items-end gap-2">
-                                        <div className="text-[10px] font-black text-white/10 uppercase tracking-[0.4em] group-hover:text-amber-500 transition-colors">{p.team}</div>
-                                        <div className="text-[9px] font-bold text-white/10 uppercase tracking-[0.2em]">{p.college}</div>
+                                        <div className="text-[10px] font-black text-white/10 uppercase tracking-[0.4em] group-hover:text-amber-500 transition-colors">SEC {p.section}</div>
+                                        <div className="text-[9px] font-bold text-white/10 uppercase tracking-[0.2em]">{p.department} ({p.year})</div>
                                     </div>
                                 </motion.div>
                             ))}

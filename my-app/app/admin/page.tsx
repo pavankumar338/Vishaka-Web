@@ -21,16 +21,24 @@ export default function AdminPage() {
 
     const [newParticipant, setNewParticipant] = useState({
         name: "",
+        registerNumber: "",
+        year: "",
+        department: "",
+        section: "",
+        game: "",
         email: "",
-        college: "",
-        team: "",
-        event: "Vishaka Event 2026",
+        event: "Ugadi Event 2026",
     });
 
     useEffect(() => {
         const isAdmin = localStorage.getItem("vishaka_admin_session");
+        const role = localStorage.getItem("vishaka_role");
         if (isAdmin !== "true") {
             router.push("/login");
+            return;
+        }
+        if (role === "volunteer") {
+            router.push("/admin/scan");
             return;
         }
 
@@ -52,6 +60,23 @@ export default function AdminPage() {
         }
     }, [baseUrl]);
 
+    useEffect(() => {
+        const channel = supabase
+            .channel('participants-changes')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'participants' },
+                (payload) => {
+                    fetchParticipants();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
+
     async function fetchParticipants() {
         try {
             setLoading(true);
@@ -65,9 +90,12 @@ export default function AdminPage() {
             const mappedData: Participant[] = (data || []).map(item => ({
                 id: item.id,
                 name: item.name,
-                email: item.email,
-                college: item.college,
-                team: item.team,
+                registerNumber: item.register_number || "",
+                year: item.year || "",
+                department: item.department || "",
+                section: item.section || "",
+                game: item.game || "",
+                email: item.email || "",
                 status: item.status,
                 event: item.event,
                 registrationDate: new Date(item.created_at).toLocaleDateString(),
@@ -83,9 +111,16 @@ export default function AdminPage() {
     }
 
     const generateParticipantId = () => {
-        const count = participants.length + 1;
-        const padded = count.toString().padStart(4, '0');
-        return `Vishaka2026-${padded}`;
+        let maxCount = 0;
+        participants.forEach(p => {
+            const match = p.id.match(/Ugadi2026-(\d+)/);
+            if (match) {
+                const num = parseInt(match[1], 10);
+                if (num > maxCount) maxCount = num;
+            }
+        });
+        const padded = (maxCount + 1).toString().padStart(4, '0');
+        return `Ugadi2026-${padded}`;
     };
 
     const handleAddParticipant = async (e: React.FormEvent) => {
@@ -100,8 +135,11 @@ export default function AdminPage() {
                         id: customId,
                         name: newParticipant.name,
                         email: newParticipant.email,
-                        college: newParticipant.college,
-                        team: newParticipant.team,
+                        register_number: newParticipant.registerNumber,
+                        year: newParticipant.year,
+                        department: newParticipant.department,
+                        section: newParticipant.section,
+                        game: newParticipant.game,
                         event: newParticipant.event,
                         status: 'registered'
                     }
@@ -115,8 +153,11 @@ export default function AdminPage() {
                     id: data[0].id,
                     name: data[0].name,
                     email: data[0].email,
-                    college: data[0].college,
-                    team: data[0].team,
+                    registerNumber: data[0].register_number,
+                    year: data[0].year,
+                    department: data[0].department,
+                    section: data[0].section,
+                    game: data[0].game,
                     status: data[0].status,
                     event: data[0].event,
                     registrationDate: new Date(data[0].created_at).toLocaleDateString(),
@@ -124,25 +165,15 @@ export default function AdminPage() {
                 };
                 setParticipants([participant, ...participants]);
 
-                try {
-                    await fetch('/api/send-email', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            to: participant.email,
-                            subject: `Registration Confirmed - ${participant.event}`,
-                            html: `<p>Hi ${participant.name}, your registration for ${participant.event} is confirmed! ID: ${participant.id}</p>`
-                        }),
-                    });
-                } catch (e) {
-                    console.error("Auto-email failed:", e);
-                }
+                // Note: Email dispatch removed as email is no longer part of the schema
+                // If text broadcast is required, an SMS API endpoint can be substituted here
 
-                setNewParticipant({ name: "", email: "", college: "", team: "", event: "Vishaka Event 2026" });
+                setNewParticipant({ name: "", registerNumber: "", year: "", department: "", section: "", game: "", email: "", event: "Vishaka Event 2026" });
                 setShowAddModal(false);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error adding participant:', error);
+            alert("Error adding participant: " + (error?.message || JSON.stringify(error)));
         } finally {
             setIsSaving(false);
         }
@@ -159,10 +190,18 @@ export default function AdminPage() {
         }
     };
 
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case 'checked-in': return '#00ff88';
+            case 'checked-out': return '#3b82f6';
+            case 'registered': default: return '#f59e0b';
+        }
+    };
+
     const filteredParticipants = participants.filter(
         (p) =>
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             p.id.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -225,13 +264,77 @@ export default function AdminPage() {
                 </motion.header>
 
 
-                <div className="mb-16">
+                {/* Dashboard Stats */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8 md:mb-12"
+                >
+                    <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl group-hover:bg-amber-500/10 transition-colors" />
+                        <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+                            <div className="flex items-center justify-between">
+                                <Users size={20} className="text-white/20 group-hover:text-amber-500 transition-colors" />
+                                <span className="text-[9px] font-black uppercase text-amber-500 tracking-[0.2em] bg-amber-500/10 px-2 py-1 rounded-md">Total</span>
+                            </div>
+                            <div>
+                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.length}</h3>
+                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Total Registrations</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl group-hover:bg-emerald-500/10 transition-colors" />
+                        <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+                            <div className="flex items-center justify-between">
+                                <ShieldCheck size={20} className="text-white/20 group-hover:text-emerald-500 transition-colors" />
+                                <span className="text-[9px] font-black uppercase text-emerald-500 tracking-[0.2em] bg-emerald-500/10 px-2 py-1 rounded-md">Inside</span>
+                            </div>
+                            <div>
+                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.filter(p => p.status === 'checked-in').length}</h3>
+                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Checked In Today</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl group-hover:bg-blue-500/10 transition-colors" />
+                        <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+                            <div className="flex items-center justify-between">
+                                <LogOut size={20} className="text-white/20 group-hover:text-blue-500 transition-colors" />
+                                <span className="text-[9px] font-black uppercase text-blue-500 tracking-[0.2em] bg-blue-500/10 px-2 py-1 rounded-md">Left</span>
+                            </div>
+                            <div>
+                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.filter(p => p.status === 'checked-out').length}</h3>
+                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Checked Out</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-3xl group-hover:bg-purple-500/10 transition-colors" />
+                        <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+                            <div className="flex items-center justify-between">
+                                <QrCode size={20} className="text-white/20 group-hover:text-purple-500 transition-colors" />
+                                <span className="text-[9px] font-black uppercase text-purple-500 tracking-[0.2em] bg-purple-500/10 px-2 py-1 rounded-md">Pending</span>
+                            </div>
+                            <div>
+                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.filter(p => !p.status || p.status === 'registered').length}</h3>
+                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Awaiting Entry</p>
+                            </div>
+                        </div>
+                    </div>
+                </motion.div>
+
+                <div className="mb-8">
                     <div className="relative group h-20 md:h-24">
                         <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-amber-500 transition-colors" size={20} />
                         <input
                             type="text"
                             placeholder="SEARCH BY IDENTITY TAG OR NAME"
-                            className="w-full h-full bg-white/[0.02] border border-white/5 rounded-3xl md:rounded-[2rem] py-6 md:py-8 pl-14 md:pl-16 pr-6 md:pr-8 focus:outline-none focus:border-amber-500/30 transition-all font-outfit text-[10px] md:text-xs font-black tracking-[0.2em] md:tracking-[0.3em] uppercase placeholder:text-white/10"
+                            className="w-full h-full bg-white/[0.02] border border-white/5 rounded-3xl md:rounded-[2rem] py-6 md:py-8 pl-14 md:pl-16 pr-6 md:pr-8 focus:outline-none focus:border-amber-500/30 transition-all font-outfit text-[10px] md:text-xs font-black tracking-[0.2em] md:tracking-[0.3em] placeholder:text-white/10"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -275,16 +378,16 @@ export default function AdminPage() {
                                         <div onClick={() => setSelectedParticipant(p)}>
                                             <div className="font-black text-sm text-white tracking-widest uppercase mb-1">{p.name}</div>
                                             <div className="text-[9px] text-white/30 font-bold uppercase tracking-widest flex items-center gap-2">
-                                                <Building size={10} className="text-amber-500/50" /> {p.college}
+                                                <Building size={10} className="text-amber-500/50" /> {p.department} ({p.year})
                                             </div>
                                         </div>
 
                                         <div className="flex justify-between items-center">
-                                            <div className="inline-flex items-center gap-2 text-[8px] font-black tracking-widest text-[#00ff88]/50 bg-[#00ff88]/5 px-2.5 py-1 rounded-full border border-[#00ff88]/10">
-                                                <div className="w-1 h-1 rounded-full bg-[#00ff88]" />
+                                            <div className="inline-flex items-center gap-2 text-[8px] font-black tracking-widest px-2.5 py-1 rounded-full border" style={{ color: getStatusColor(p.status), borderColor: `${getStatusColor(p.status)}40`, backgroundColor: `${getStatusColor(p.status)}10` }}>
+                                                <div className="w-1 h-1 rounded-full" style={{ backgroundColor: getStatusColor(p.status) }} />
                                                 {p.status}
                                             </div>
-                                            <div className="text-[9px] font-black text-white/20 tracking-widest uppercase">{p.team}</div>
+                                            <div className="text-[9px] font-black text-white/20 tracking-widest uppercase">SEC {p.section} | {p.registerNumber}</div>
                                         </div>
                                     </div>
                                 ))}
@@ -297,7 +400,7 @@ export default function AdminPage() {
                                         <tr className="bg-white/[0.02] border-b border-white/5 font-outfit text-[10px] font-black uppercase tracking-[0.4em] text-white/20">
                                             <th className="px-10 py-8">IDENTITY TAG</th>
                                             <th className="px-10 py-8">DELEGATE PROFILE</th>
-                                            <th className="px-10 py-8">TEAM STATUS</th>
+                                            <th className="px-10 py-8">DEPT & STATUS</th>
                                             <th className="px-10 py-8 text-center uppercase tracking-[0.2em] text-amber-500/50">SECURED QR PASS</th>
                                             <th className="px-10 py-8 text-right">CONTROLS</th>
                                         </tr>
@@ -320,13 +423,13 @@ export default function AdminPage() {
                                                 <td className="px-10 py-8">
                                                     <div className="font-black text-sm text-white tracking-widest uppercase mb-1">{p.name}</div>
                                                     <div className="text-[10px] text-white/30 font-bold uppercase tracking-[0.1em] flex items-center gap-2">
-                                                        <Building size={10} className="text-amber-500/50" /> {p.college}
+                                                        <Building size={10} className="text-amber-500/50" /> {p.registerNumber}
                                                     </div>
                                                 </td>
                                                 <td className="px-10 py-8">
-                                                    <div className="text-[11px] font-black text-white/50 tracking-widest uppercase mb-2 group-hover:text-white transition-colors">{p.team}</div>
-                                                    <div className="inline-flex items-center gap-2 lowercase text-[10px] font-black tracking-widest text-[#00ff88]/50 bg-[#00ff88]/5 px-3 py-1 rounded-full border border-[#00ff88]/10 whitespace-nowrap">
-                                                        <div className="w-1 h-1 rounded-full bg-[#00ff88] shadow-[0_0_5px_#00ff88]" />
+                                                    <div className="text-[11px] font-black text-white/50 tracking-widest uppercase mb-2 group-hover:text-white transition-colors">{p.department} (Year {p.year}, Sec {p.section})</div>
+                                                    <div className="inline-flex items-center gap-2 lowercase text-[10px] font-black tracking-widest px-3 py-1 rounded-full border whitespace-nowrap" style={{ color: getStatusColor(p.status), borderColor: `${getStatusColor(p.status)}40`, backgroundColor: `${getStatusColor(p.status)}10` }}>
+                                                        <div className="w-1 h-1 rounded-full shadow-[0_0_5px_currentColor]" style={{ backgroundColor: getStatusColor(p.status) }} />
                                                         {p.status}
                                                     </div>
                                                 </td>
@@ -386,19 +489,31 @@ export default function AdminPage() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                     <div className="space-y-4">
                                         <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Full Identity</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white uppercase" placeholder="NAME" value={newParticipant.name} onChange={(e) => setNewParticipant({ ...newParticipant, name: e.target.value })} />
+                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="NAME" value={newParticipant.name} onChange={(e) => setNewParticipant({ ...newParticipant, name: e.target.value })} />
                                     </div>
                                     <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Organization</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white uppercase" placeholder="COLLEGE" value={newParticipant.college} onChange={(e) => setNewParticipant({ ...newParticipant, college: e.target.value })} />
+                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Register Number</label>
+                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="REGISTER NUMBER" value={newParticipant.registerNumber} onChange={(e) => setNewParticipant({ ...newParticipant, registerNumber: e.target.value })} />
                                     </div>
                                     <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Contact Node</label>
-                                        <input required type="email" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white uppercase" placeholder="EMAIL ADDRESS" value={newParticipant.email} onChange={(e) => setNewParticipant({ ...newParticipant, email: e.target.value })} />
+                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Year</label>
+                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="YEAR" value={newParticipant.year} onChange={(e) => setNewParticipant({ ...newParticipant, year: e.target.value })} />
                                     </div>
                                     <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Team Identity</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white uppercase" placeholder="SQUAD NAME" value={newParticipant.team} onChange={(e) => setNewParticipant({ ...newParticipant, team: e.target.value })} />
+                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Department</label>
+                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="DEPARTMENT" value={newParticipant.department} onChange={(e) => setNewParticipant({ ...newParticipant, department: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-4">
+                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Section</label>
+                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="SECTION" value={newParticipant.section} onChange={(e) => setNewParticipant({ ...newParticipant, section: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-4">
+                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Game</label>
+                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="GAME" value={newParticipant.game} onChange={(e) => setNewParticipant({ ...newParticipant, game: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-4">
+                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Email</label>
+                                        <input type="email" required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="EMAIL" value={newParticipant.email} onChange={(e) => setNewParticipant({ ...newParticipant, email: e.target.value })} />
                                     </div>
                                 </div>
                                 <button type="submit" disabled={isSaving} className="w-full bg-white text-black py-6 rounded-xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 transition-all flex items-center justify-center gap-4 shadow-3xl disabled:opacity-50">
@@ -421,7 +536,7 @@ export default function AdminPage() {
                                 <div>
                                     <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-3">System Identity Passport</p>
                                     <h3 className="text-black text-4xl font-black leading-none tracking-tighter uppercase whitespace-pre-wrap">{selectedParticipant.name}</h3>
-                                    <p className="text-black/30 font-black uppercase text-[10px] mt-4 tracking-[0.2em]">{selectedParticipant.college}</p>
+                                    <p className="text-black/30 font-black uppercase text-[10px] mt-4 tracking-[0.2em]">{selectedParticipant.registerNumber}</p>
                                 </div>
                                 <X onClick={() => setSelectedParticipant(null)} className="text-black/10 hover:text-black cursor-pointer transition-colors" size={24} />
                             </div>
@@ -436,12 +551,14 @@ export default function AdminPage() {
 
                             <div className="grid grid-cols-2 gap-8 mb-16 px-2">
                                 <div>
-                                    <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Squad</p>
-                                    <p className="text-black font-black text-xs tracking-widest uppercase">{selectedParticipant.team}</p>
+                                    <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Details</p>
+                                    <p className="text-black font-black text-xs tracking-widest uppercase">{selectedParticipant.department} - Yr {selectedParticipant.year} (Sec {selectedParticipant.section})</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Authorization</p>
-                                    <p className="text-emerald-500 font-black text-xs tracking-widest uppercase italic">ACTIVE_PASS</p>
+                                    <p className="font-black text-xs tracking-widest uppercase italic" style={{ color: getStatusColor(selectedParticipant.status) }}>
+                                        {selectedParticipant.status.replace('-', '_')}
+                                    </p>
                                 </div>
                             </div>
 

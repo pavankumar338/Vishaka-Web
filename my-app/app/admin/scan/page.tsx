@@ -19,6 +19,8 @@ export default function QRScannerPage() {
     const [isUpdating, setIsUpdating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isCameraStarted, setIsCameraStarted] = useState(false);
+    const [showToast, setShowToast] = useState(false);
+    const [isAdminRole, setIsAdminRole] = useState(false);
     const router = useRouter();
     const scannerRef = useRef<Html5Qrcode | null>(null);
     const isStarting = useRef(false);
@@ -113,10 +115,12 @@ export default function QRScannerPage() {
 
     useEffect(() => {
         const isAdmin = localStorage.getItem("vishaka_admin_session");
+        const role = localStorage.getItem("vishaka_role");
         if (isAdmin !== "true") {
             router.push("/login");
             return;
         }
+        setIsAdminRole(role === "admin");
 
         startScanner();
 
@@ -167,11 +171,14 @@ export default function QRScannerPage() {
             setParticipant({
                 id: data.id,
                 name: data.name,
-                email: data.email,
-                college: data.college,
-                team: data.team,
+                registerNumber: data.register_number,
+                year: data.year,
+                department: data.department,
+                section: data.section,
                 status: data.status,
                 event: data.event,
+                game: data.game || '', // Or whatever field is supposed to map
+                email: data.email || '',
                 registrationDate: new Date(data.created_at).toLocaleDateString(),
                 qrValue: ""
             });
@@ -194,8 +201,16 @@ export default function QRScannerPage() {
             setIsUpdating(true);
             const targetTable = scanMode === 'check-in' ? 'check_in_logs' : 'check_out_logs';
 
-            if (scanMode === 'check-in') {
-                await supabase.from('participants').update({ status: 'checked-in' }).eq('id', participant.id);
+            const newStatus = scanMode === 'check-in' ? 'checked-in' : 'checked-out';
+            const { data: updatedData, error: updateError } = await supabase
+                .from('participants')
+                .update({ status: newStatus })
+                .eq('id', participant.id)
+                .select();
+
+            if (updateError) throw updateError;
+            if (!updatedData || updatedData.length === 0) {
+                throw new Error("RLS_POLICY_BLOCK: Database Row Level Security prevented the participant update.");
             }
 
             const { data: newLog, error: logError } = await supabase
@@ -210,8 +225,10 @@ export default function QRScannerPage() {
             if (logError) throw logError;
 
             setLastAction(newLog || { id: 'INTERNAL_AUTH', recorded_at: new Date().toISOString() });
+            setShowToast(true);
 
             setTimeout(() => {
+                setShowToast(false);
                 resetScanner();
             }, 2500);
         } catch (err) {
@@ -252,25 +269,39 @@ export default function QRScannerPage() {
                 <motion.header
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col lg:flex-row items-center justify-between gap-6 md:gap-12 mb-8 md:mb-16"
+                    className="flex flex-col lg:flex-row items-center justify-between gap-6 md:gap-12 mb-8 md:mb-16 w-full"
                 >
-                    <div className="flex items-center gap-4 md:gap-6 w-full lg:w-auto">
-                        <Link
-                            href="/admin"
-                            className="group p-3 md:p-4 bg-white/5 rounded-2xl hover:bg-amber-500 hover:text-black transition-all border border-white/5 active:scale-95 flex items-center justify-center shadow-2xl"
-                        >
-                            <ArrowLeft className="w-5 h-5 md:w-6 md:h-6 group-hover:-translate-x-1 transition-transform" strokeWidth={3} />
-                        </Link>
-                        <div className="flex items-center gap-4">
-                            <div className="relative w-10 h-10 md:w-14 md:h-14">
-                                <Image src="/side-image.png" alt="Logo" fill className="object-contain" />
+                    <div className="flex flex-col md:flex-row items-center justify-between w-full lg:w-auto gap-6">
+                        <div className="flex items-center gap-4 md:gap-6 justify-center">
+                            {isAdminRole && (
+                                <Link
+                                    href="/admin"
+                                    className="group p-3 md:p-4 bg-white/5 rounded-2xl hover:bg-amber-500 hover:text-black transition-all border border-white/5 active:scale-95 flex items-center justify-center shadow-2xl"
+                                >
+                                    <ArrowLeft className="w-5 h-5 md:w-6 md:h-6 group-hover:-translate-x-1 transition-transform" strokeWidth={3} />
+                                </Link>
+                            )}
+                            <div className="flex items-center gap-4">
+                                <div className="relative w-10 h-10 md:w-14 md:h-14">
+                                    <Image src="/side-image.png" alt="Logo" fill className="object-contain" />
+                                </div>
+                                <div className="text-center md:text-left">
+                                    <p className="text-[8px] md:text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-1 md:mb-2">Visual Entrance Control</p>
+                                    <h1 className="text-2xl md:text-4xl lg:text-5xl font-black text-white tracking-tighter uppercase leading-none italic">
+                                        Scann<span className="text-amber-500">er</span> Core.
+                                    </h1>
+                                </div>
                             </div>
-                            <div>
-                                <p className="text-[8px] md:text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-1 md:mb-2">Visual Entrance Control</p>
-                                <h1 className="text-2xl md:text-4xl lg:text-5xl font-black text-white tracking-tighter uppercase leading-none italic">
-                                    Scann<span className="text-amber-500">er</span> Core.
-                                </h1>
-                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => { localStorage.removeItem("vishaka_admin_session"); localStorage.removeItem("vishaka_role"); router.push("/login"); }}
+                                className="group p-3 md:p-4 bg-[#f43f5e]/10 rounded-2xl hover:bg-[#f43f5e] hover:text-white transition-all border border-[#f43f5e]/20 active:scale-95 flex items-center justify-center shadow-2xl text-[#f43f5e]"
+                                title="Sign Out"
+                            >
+                                <LogOut className="w-5 h-5 md:w-6 md:h-6" strokeWidth={3} />
+                            </button>
                         </div>
                     </div>
 
@@ -422,31 +453,34 @@ export default function QRScannerPage() {
                                     <div className="absolute -top-40 -right-40 w-96 h-96 bg-amber-500/5 blur-[120px] rounded-full" />
 
                                     <div className="relative z-10">
-                                        <div className="flex items-center justify-between mb-8 md:mb-16">
-                                            <span className="bg-amber-500/5 border border-amber-500/20 text-amber-500 px-4 py-1.5 rounded-full text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] italic">IDENTITY_PENDING</span>
+                                        <div className="flex items-center justify-between mb-8 md:mb-12">
+                                            <span className="bg-amber-500/5 border border-amber-500/20 text-amber-500 px-4 py-1.5 rounded-full text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] italic">FULL_IDENTITY</span>
                                             <span className="text-[9px] md:text-[10px] font-mono text-white/20 font-bold uppercase tracking-widest">{participant.id}</span>
                                         </div>
 
-                                        <div className="flex flex-col items-start gap-8 md:gap-10 mb-12 md:mb-16">
-                                            <div className="w-20 h-20 md:w-24 md:h-24 bg-white/5 rounded-[1.8rem] md:rounded-[2.2rem] flex items-center justify-center text-white/20 border border-white/5 group-hover:text-amber-500 transition-colors">
-                                                <User className="w-10 h-10 md:w-12 md:h-12" strokeWidth={1} />
-                                            </div>
+                                        <div className="flex flex-col gap-6 mb-12">
                                             <div>
-                                                <h2 className="text-3xl md:text-5xl lg:text-6xl font-black text-white tracking-tighter uppercase leading-[0.8] mb-4 md:mb-6">{participant.name}</h2>
-                                                <div className="flex items-center gap-3 text-white/30 text-[9px] md:text-[11px] font-black uppercase tracking-[0.25em]">
-                                                    <Building size={14} className="text-amber-500" />
-                                                    {participant.college}
-                                                </div>
+                                                <p className="text-[9px] md:text-[10px] font-black text-amber-500/50 uppercase tracking-[0.3em] mb-2">Name</p>
+                                                <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter uppercase leading-[0.8]">{participant.name}</h2>
                                             </div>
-                                        </div>
-
-                                        <div className="space-y-4 mb-16">
-                                            <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-8 flex items-center justify-between">
-                                                <div className="space-y-1">
-                                                    <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.4em]">SQUAD_ID</p>
-                                                    <p className="text-sm font-black text-white tracking-widest uppercase">{participant.team}</p>
+                                            
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 md:p-6 flex flex-col justify-center">
+                                                    <p className="text-[8px] md:text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mb-1">Register Number</p>
+                                                    <p className="text-sm md:text-base font-black text-amber-500 tracking-widest uppercase">{participant.registerNumber}</p>
                                                 </div>
-                                                <Users size={20} className="text-white/10" />
+                                                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 md:p-6 flex flex-col justify-center">
+                                                    <p className="text-[8px] md:text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mb-1">Year</p>
+                                                    <p className="text-sm md:text-base font-black text-amber-500 tracking-widest uppercase">{participant.year}</p>
+                                                </div>
+                                                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 md:p-6 flex flex-col justify-center">
+                                                    <p className="text-[8px] md:text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mb-1">Department</p>
+                                                    <p className="text-sm md:text-base font-black text-amber-500 tracking-widest uppercase">{participant.department}</p>
+                                                </div>
+                                                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 md:p-6 flex flex-col justify-center">
+                                                    <p className="text-[8px] md:text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mb-1">Section</p>
+                                                    <p className="text-sm md:text-base font-black text-amber-500 tracking-widest uppercase">{participant.section}</p>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -486,7 +520,7 @@ export default function QRScannerPage() {
                                                 disabled={isUpdating}
                                                 className="w-full bg-white text-black py-5 md:py-7 rounded-[1.5rem] md:rounded-[2rem] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-[10px] md:text-xs hover:bg-amber-500 transition-all duration-700 shadow-3xl disabled:opacity-50 active:scale-[0.98] flex items-center justify-center gap-4"
                                             >
-                                                {isUpdating ? <Loader2 size={24} className="animate-spin" /> : <>AUTHORIZE_TRANSACTION <ChevronRight size={20} strokeWidth={3} /></>}
+                                                {isUpdating ? <Loader2 size={24} className="animate-spin" /> : <>{scanMode === 'check-in' ? 'FINALIZE ENTRANCE' : 'FINALIZE EXIT'} <ChevronRight size={20} strokeWidth={3} /></>}
                                             </button>
                                         )}
                                     </div>
@@ -555,20 +589,56 @@ export default function QRScannerPage() {
 
             {/* Nav Footer (Mobile Optimized) */}
             <div className="fixed bottom-6 md:bottom-10 left-0 w-full flex justify-center px-6 lg:hidden z-50">
-                <nav className="bg-[#0f0f0f]/90 backdrop-blur-2xl border border-white/10 px-6 md:px-8 py-4 md:py-5 rounded-full flex items-center gap-8 md:gap-12 shadow-3xl">
-                    <Link href="/admin" className="text-white/40 hover:text-white transition-colors">
-                        <LayoutDashboard size={24} />
-                    </Link>
-                    <div className="w-px h-6 bg-white/10" />
-                    <button onClick={resetScanner} className="text-amber-500">
+                <nav className="bg-[#0f0f0f]/90 backdrop-blur-2xl border border-white/10 px-6 md:px-8 py-4 md:py-5 rounded-full flex items-center gap-6 md:gap-12 shadow-3xl overflow-x-auto no-scrollbar max-w-full">
+                    {isAdminRole && (
+                        <>
+                            <Link href="/admin" className="text-white/40 hover:text-white transition-colors flex-shrink-0">
+                                <LayoutDashboard size={24} />
+                            </Link>
+                            <div className="w-px h-6 bg-white/10 flex-shrink-0" />
+                        </>
+                    )}
+                    <button onClick={resetScanner} className="text-amber-500 flex-shrink-0 relative group">
                         <ScanLine size={28} strokeWidth={3} />
                     </button>
-                    <div className="w-px h-6 bg-white/10" />
-                    <button onClick={() => { localStorage.removeItem("vishaka_admin_session"); router.push("/login"); }} className="text-white/40 hover:text-red-500 transition-colors">
+                    <div className="w-px h-6 bg-white/10 flex-shrink-0" />
+                    <button 
+                        onClick={() => { setScanMode(scanMode === 'check-in' ? 'check-out' : 'check-in'); resetScanner(); }} 
+                        className={`transition-colors flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full ${scanMode === 'check-in' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'}`}
+                        title="Toggle Check-in / Check-out Phase"
+                    >
+                        {scanMode === 'check-in' ? <LogIn size={20} /> : <LogOut size={20} />}
+                    </button>
+                    <div className="w-px h-6 bg-white/10 flex-shrink-0" />
+                    <button onClick={() => { localStorage.removeItem("vishaka_admin_session"); localStorage.removeItem("vishaka_role"); router.push("/login"); }} className="text-white/40 hover:text-[#f43f5e] transition-colors flex-shrink-0">
                         <LogOut size={24} />
                     </button>
                 </nav>
             </div>
+
+            {/* Cinematic Success Toast */}
+            <AnimatePresence>
+                {showToast && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.9, transition: { duration: 0.2 } }}
+                        className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[100] w-max"
+                    >
+                        <div className="bg-[#0a0a0a]/90 backdrop-blur-2xl border border-amber-500/30 rounded-2xl px-6 py-4 flex items-center gap-4 shadow-[0_20px_50px_rgba(245,158,11,0.2)]">
+                            <div className="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center text-black shadow-[0_0_20px_rgba(245,158,11,0.5)]">
+                                <CheckCircle2 size={20} strokeWidth={3} />
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-[10px] font-black text-amber-500 tracking-[0.3em] uppercase underline-offset-4 decoration-amber-500/20 underline">SYSTEM_UPDATE_SUCCESS</span>
+                                <span className="text-[12px] font-black text-white tracking-widest uppercase">
+                                    {scanMode === 'check-in' ? 'Check-in Recorded' : 'Check-out Recorded'}
+                                </span>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <style jsx global>{`
                 #reader {

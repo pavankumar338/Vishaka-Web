@@ -28,9 +28,12 @@ export default function ParticipantProfile() {
                     setParticipant({
                         id: data.id,
                         name: data.name,
+                        registerNumber: data.register_number,
+                        year: data.year,
+                        department: data.department,
+                        section: data.section,
+                        game: data.game,
                         email: data.email,
-                        college: data.college,
-                        team: data.team,
                         status: data.status,
                         event: data.event,
                         registrationDate: new Date(data.created_at).toLocaleDateString(),
@@ -139,7 +142,7 @@ export default function ParticipantProfile() {
                             <h1 className="text-4xl md:text-6xl font-black tracking-tighter mb-4 text-white uppercase leading-none">{participant.name}</h1>
                             <div className="flex items-center gap-3 text-amber-500/80">
                                 <Building className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                                <p className="font-black uppercase text-[9px] md:text-[10px] tracking-[0.2em] md:tracking-[0.3em]">{participant.college}</p>
+                                <p className="font-black uppercase text-[9px] md:text-[10px] tracking-[0.2em] md:tracking-[0.3em]">{participant.department} (Yr {participant.year})</p>
                             </div>
                         </div>
 
@@ -155,10 +158,10 @@ export default function ParticipantProfile() {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="bg-white/[0.02] p-8 rounded-[2.5rem] border border-white/5">
-                                    <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Tactical_Squad</p>
+                                    <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Section</p>
                                     <div className="flex items-center gap-3">
                                         <Users size={18} className="text-white/20" />
-                                        <p className="text-white font-black text-[11px] uppercase tracking-widest">{participant.team}</p>
+                                        <p className="text-white font-black text-[11px] uppercase tracking-widest">SEC {participant.section}</p>
                                     </div>
                                 </div>
                                 <div className="bg-white/[0.02] p-8 rounded-[2.5rem] border border-white/5">
@@ -171,12 +174,12 @@ export default function ParticipantProfile() {
                             </div>
 
                             <div className="bg-white/[0.02] p-8 rounded-[2.5rem] border border-white/5">
-                                <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Relay_Node</p>
+                                <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Registration_Key</p>
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-white/20">
-                                        <Mail size={18} />
+                                        <Sparkles size={18} />
                                     </div>
-                                    <p className="text-xs font-black text-white/50 tracking-widest font-mono uppercase">{participant.email}</p>
+                                    <p className="text-xs font-black text-white/50 tracking-widest font-mono uppercase">{participant.registerNumber}</p>
                                 </div>
                             </div>
                         </div>
