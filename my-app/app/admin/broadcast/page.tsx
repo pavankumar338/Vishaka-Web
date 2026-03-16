@@ -102,13 +102,15 @@ export default function MailsPage() {
 
         for (const p of selectedParticipants) {
             try {
-                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(defaultUrl + '/p/' + p.id)}`;
                 const response = await fetch('/api/send-email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         to: p.email,
                         subject: `Confirmation of Registration – Ugadi Utsav 2K26 🎉`,
+                        qrData: defaultUrl + '/p/' + p.id,
+                        participantName: p.name,
+                        participantId: p.id,
                         html: `
                             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 30px; border: 1px solid #eaeaea; border-radius: 12px; background: #ffffff; color: #333333;">
                                 <h2 style="color: #d97706;">Confirmation of Registration – Ugadi Utsav 2K26 🎉</h2>
@@ -123,12 +125,10 @@ export default function MailsPage() {
                                     <p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game/Event:</strong> ${p.game || 'N/A'}</p>
                                 </div>
 
-                                <div style="text-align: center; margin: 30px 0;">
-                                    <p style="font-size: 15px; font-weight: bold; color: #444;">Your Entry Pass</p>
-                                    <img src="${qrUrl}" alt="QR Code" style="width: 200px; height: 200px; border: 4px solid #f59e0b; border-radius: 16px; padding: 10px; background: #fff;" />
+                                <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+                                    <p style="font-size: 16px; font-weight: bold; color: #0f172a; margin: 0;">📄 Your Entry Pass PDF is attached!</p>
+                                    <p style="font-size: 14px; color: #475569; margin-top: 8px; margin-bottom: 0;">Please download and present the attached PDF for quick check-in at the venue.</p>
                                 </div>
-
-                                <p style="font-size: 15px; line-height: 1.5;">Please keep your QR safe. You can also present the QR code attached for quick check-in at the venue.</p>
                                 
                                 <p style="font-size: 15px; line-height: 1.5;">We look forward to your enthusiastic participation and hope you have a wonderful experience at Ugadi Utsav 2K26.</p>
                                 
