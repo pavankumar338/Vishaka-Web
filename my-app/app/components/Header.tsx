@@ -25,11 +25,11 @@ export default function Header() {
   const isDashboard = pathname?.startsWith("/admin");
 
   return (
-    <header className="w-full relative z-50 pt-4 md:pt-8 px-4 md:px-6">
-      <nav className="max-w-7xl mx-auto px-6 md:px-12 py-6 md:py-10 flex items-center justify-between bg-[#0a0a0a]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] md:rounded-[3.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-500">
+    <header className="w-full relative z-50 pt-3 md:pt-6 px-3 md:px-6">
+      <nav className="max-w-7xl mx-auto px-4 md:px-8 py-4 md:py-6 flex items-center justify-between bg-[#0a0a0a]/90 backdrop-blur-2xl border border-white/10 rounded-[1.5rem] md:rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-500">
         {/* Logo & Brand */}
-        <Link href="/" className="flex items-center gap-3 md:gap-8 group">
-          <div className="relative w-12 h-12 md:w-28 md:h-28 transition-transform duration-700 group-hover:scale-110">
+        <Link href="/" className="flex items-center gap-2 md:gap-4 group">
+          <div className="relative w-8 h-8 md:w-16 md:h-16 transition-transform duration-700 group-hover:scale-110">
             <Image
               src="/side-image.png"
               alt="Vishaka Logo"
@@ -38,7 +38,7 @@ export default function Header() {
             />
           </div>
           <div className="flex flex-col">
-            <span className="font-outfit font-black text-lg md:text-5xl tracking-[0.05em] text-white leading-tight uppercase">
+            <span className="font-outfit font-black text-sm md:text-3xl tracking-[0.05em] text-white leading-tight uppercase">
               VISHAKA <span className="text-amber-500">2K26</span>
             </span>
           </div>

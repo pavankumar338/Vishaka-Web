@@ -75,7 +75,7 @@ export default function AdminLogin() {
             >
                 <div className="text-center mb-8 md:mb-12">
 
-                    <h1 className="text-4xl md:text-7xl font-black tracking-[-0.04em] mb-4 text-white uppercase leading-[0.9]">
+                    <h1 className="text-3xl md:text-7xl font-black tracking-[-0.04em] mb-4 text-white uppercase leading-[0.9]">
                         RESTRICTED <br />
                         <span className="text-amber-500 italic">ACCESS.</span>
                     </h1>
@@ -84,7 +84,7 @@ export default function AdminLogin() {
                     </Link>
                 </div>
 
-                <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 md:p-14 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden group">
+                <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-6 md:p-14 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden group">
                     {/* Animated Accent Bar */}
                     <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50 group-hover:opacity-100 transition-opacity duration-1000" />
 

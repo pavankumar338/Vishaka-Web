@@ -378,10 +378,10 @@ export default function QRScannerPage() {
                                     <Image src="/side-image.png" alt="Logo" fill className="object-contain" />
                                 </div>
                                 <div className="text-center md:text-left">
-                                    <p className="text-[8px] md:text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-1 md:mb-2">
+                                    <p className="text-[7px] md:text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-1 md:mb-2">
                                         Visual Entrance Control
                                     </p>
-                                    <h1 className="text-2xl md:text-4xl lg:text-5xl font-black text-white tracking-tighter uppercase leading-none italic">
+                                    <h1 className="text-xl md:text-4xl lg:text-5xl font-black text-white tracking-tighter uppercase leading-none italic">
                                         Scann<span className="text-amber-500">er</span> Core.
                                     </h1>
                                 </div>
@@ -403,14 +403,14 @@ export default function QRScannerPage() {
                         </div>
                     </div>
 
-                    <div className="flex bg-[#0a0a0a] p-1.5 md:p-2 rounded-[2rem] border border-white/5 backdrop-blur-3xl w-full lg:w-auto shadow-2xl">
+                    <div className="flex bg-[#0a0a0a] p-1 md:p-2 rounded-[2rem] border border-white/5 backdrop-blur-3xl w-full lg:w-auto shadow-2xl">
                         <button
                             onClick={() => {
                                 scanModeRef.current = "check-in";
                                 setScanMode("check-in");
                                 resetScanner();
                             }}
-                            className={`flex-1 lg:flex-none flex items-center justify-center gap-3 md:gap-4 px-6 md:px-10 py-4 md:py-5 rounded-[1.5rem] font-black text-[10px] md:text-[11px] uppercase tracking-[0.2em] transition-all duration-700 ${scanMode === "check-in"
+                            className={`flex-1 lg:flex-none flex items-center justify-center gap-2 md:gap-4 px-4 md:px-10 py-3.5 md:py-5 rounded-[1.5rem] font-black text-[9px] md:text-[11px] uppercase tracking-[0.2em] transition-all duration-700 ${scanMode === "check-in"
                                 ? "bg-amber-500 text-black shadow-2xl shadow-amber-500/20 scale-[1.02]"
                                 : "text-white/20 hover:text-white/40"
                                 }`}
@@ -424,7 +424,7 @@ export default function QRScannerPage() {
                                 setScanMode("check-out");
                                 resetScanner();
                             }}
-                            className={`flex-1 lg:flex-none flex items-center justify-center gap-3 md:gap-4 px-6 md:px-10 py-3.5 md:py-5 rounded-[1.5rem] font-black text-[10px] md:text-[11px] uppercase tracking-[0.2em] transition-all duration-700 ${scanMode === "check-out"
+                            className={`flex-1 lg:flex-none flex items-center justify-center gap-2 md:gap-4 px-4 md:px-10 py-3.5 md:py-5 rounded-[1.5rem] font-black text-[9px] md:text-[11px] uppercase tracking-[0.2em] transition-all duration-700 ${scanMode === "check-out"
                                 ? "bg-amber-500 text-black shadow-2xl shadow-amber-500/20 scale-[1.02]"
                                 : "text-white/20 hover:text-white/40"
                                 }`}
@@ -568,7 +568,7 @@ export default function QRScannerPage() {
                                     initial={{ opacity: 0, x: 30 }}
                                     animate={{ opacity: 1, x: 0 }}
                                     exit={{ opacity: 0, x: -30 }}
-                                    className="w-full max-w-2xl mx-auto bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] md:rounded-[3.5rem] p-6 md:p-10 shadow-[0_50px_100px_rgba(0,0,0,0.6)] relative overflow-hidden"
+                                    className="w-full max-w-2xl mx-auto bg-[#0a0a0a] border border-white/5 rounded-[2rem] md:rounded-[3.5rem] p-6 md:p-10 shadow-[0_50px_100px_rgba(0,0,0,0.6)] relative overflow-hidden"
                                 >
                                     <div className="absolute top-4 right-4 w-12 h-12 md:w-16 md:h-16 opacity-20 pointer-events-none">
                                         <Image
@@ -593,10 +593,10 @@ export default function QRScannerPage() {
 
                                         <div className="flex flex-col gap-6 mb-12">
                                             <div>
-                                                <p className="text-[9px] md:text-[10px] font-black text-amber-500/50 uppercase tracking-[0.3em] mb-2">
+                                                <p className="text-[8px] md:text-[10px] font-black text-amber-500/50 uppercase tracking-[0.3em] mb-1">
                                                     Name
                                                 </p>
-                                                <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter uppercase leading-[0.8]">
+                                                <h2 className="text-2xl md:text-5xl font-black text-white tracking-tighter uppercase leading-[0.8]">
                                                     {participant.name}
                                                 </h2>
                                             </div>

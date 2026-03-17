@@ -113,7 +113,7 @@ export default function ParticipantProfile() {
                 </motion.div>
 
                 {/* Identity Passport Card */}
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8 }} className="bg-[#0a0a0b] border border-white/5 rounded-[3rem] md:rounded-[4rem] overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.8)] relative">
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8 }} className="bg-[#0a0a0b] border border-white/5 rounded-[2.5rem] md:rounded-[4rem] overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.8)] relative">
 
                     {/* Visual Command Header */}
                     <div className="h-32 md:h-48 bg-white text-black relative p-8 md:p-12 overflow-hidden group">
@@ -137,7 +137,7 @@ export default function ParticipantProfile() {
                         </div>
                     </div>
 
-                    <div className="pt-20 md:pt-24 pb-12 md:pb-16 px-8 md:px-16">
+                    <div className="pt-16 md:pt-24 pb-12 md:pb-16 px-6 md:px-16">
                         <div className="mb-10 md:mb-14">
                             <h1 className="text-4xl md:text-6xl font-black tracking-tighter mb-4 text-white uppercase leading-none">{participant.name}</h1>
                             <div className="flex items-center gap-3 text-amber-500/80">
@@ -148,38 +148,38 @@ export default function ParticipantProfile() {
 
                         {/* Framework Data Grid */}
                         <div className="space-y-6">
-                            <div className="bg-white/[0.02] p-8 rounded-[2.5rem] border border-white/5 transition-all hover:bg-white/[0.04]">
+                             <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5 transition-all hover:bg-white/[0.04]">
                                 <div className="flex justify-between items-center mb-4">
-                                    <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em]">Identity_Node_ID</p>
+                                    <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em]">Identity_Node_ID</p>
                                     <ShieldCheck size={16} className="text-amber-500/50" />
                                 </div>
-                                <p className="text-2xl font-mono text-amber-500 font-black tracking-widest">{participant.id}</p>
+                                <p className="text-lg md:text-2xl font-mono text-amber-500 font-black tracking-widest">{participant.id}</p>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="bg-white/[0.02] p-8 rounded-[2.5rem] border border-white/5">
-                                    <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Section</p>
+                                 <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
+                                    <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Section</p>
                                     <div className="flex items-center gap-3">
                                         <Users size={18} className="text-white/20" />
-                                        <p className="text-white font-black text-[11px] uppercase tracking-widest">SEC {participant.section}</p>
+                                        <p className="text-white font-black text-[10px] md:text-[11px] uppercase tracking-widest">SEC {participant.section}</p>
                                     </div>
                                 </div>
-                                <div className="bg-white/[0.02] p-8 rounded-[2.5rem] border border-white/5">
-                                    <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Current_Status</p>
+                                 <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
+                                    <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Current_Status</p>
                                     <div className="flex items-center gap-3">
                                         <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                                        <p className="text-amber-500 font-black uppercase text-[11px] tracking-widest italic">{participant.status}</p>
+                                        <p className="text-amber-500 font-black uppercase text-[10px] md:text-[11px] tracking-widest italic">{participant.status}</p>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="bg-white/[0.02] p-8 rounded-[2.5rem] border border-white/5">
-                                <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Registration_Key</p>
+                             <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
+                                <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Registration_Key</p>
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-white/20">
                                         <Sparkles size={18} />
                                     </div>
-                                    <p className="text-xs font-black text-white/50 tracking-widest font-mono uppercase">{participant.registerNumber}</p>
+                                    <p className="text-[10px] md:text-xs font-black text-white/50 tracking-widest font-mono uppercase">{participant.registerNumber}</p>
                                 </div>
                             </div>
                         </div>

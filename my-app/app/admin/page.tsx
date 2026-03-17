@@ -520,7 +520,7 @@ export default function AdminPage() {
                             {/* Mobile Card View */}
                             <div className="md:hidden divide-y divide-white/[0.05]">
                                 {filteredParticipants.map((p) => (
-                                    <div key={p.id} className="p-6 space-y-6 bg-white/[0.01]">
+                                    <div key={p.id} className="p-4 space-y-4 bg-white/[0.01]">
                                         <div className="flex justify-between items-start">
                                             <span className="font-mono text-[9px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-2.5 py-1 rounded-md border border-amber-500/10">
                                                 {p.id}
@@ -536,8 +536,8 @@ export default function AdminPage() {
                                         </div>
 
                                         <div onClick={() => setSelectedParticipant(p)}>
-                                            <div className="font-black text-sm text-white tracking-widest uppercase mb-1">{p.name}</div>
-                                            <div className="text-[9px] text-white/30 font-bold uppercase tracking-widest flex items-center gap-2">
+                                            <div className="font-black text-xs text-white tracking-widest uppercase mb-1">{p.name}</div>
+                                            <div className="text-[8px] text-white/30 font-bold uppercase tracking-widest flex items-center gap-2">
                                                 <Building size={10} className="text-amber-500/50" /> {p.department} ({p.year})
                                             </div>
                                         </div>
@@ -872,16 +872,17 @@ export default function AdminPage() {
             {/* Modals & Overlays */}
             <AnimatePresence>
                 {showAddModal && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/95 backdrop-blur-xl">
-                        <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)]">
-                            <div className="p-10 md:p-14 border-b border-white/5 flex justify-between items-end">
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-xl">
+                        <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] flex flex-col">
+                            <div className="p-8 md:p-14 border-b border-white/5 flex justify-between items-end flex-shrink-0">
                                 <div>
                                     <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Initialize System Record</p>
                                     <h2 className="text-3xl font-black text-white leading-none uppercase tracking-tighter">Registration.</h2>
                                 </div>
-                                <button onClick={() => setShowAddModal(false)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5"><X size={24} /></button>
+                                <button onClick={() => setShowAddModal(false)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5 flex-shrink-0"><X size={24} /></button>
                             </div>
-                            <form onSubmit={handleAddParticipant} className="p-10 md:p-14 space-y-10">
+                            <div className="flex-1 overflow-y-auto p-8 md:p-14">
+                                <form onSubmit={handleAddParticipant} className="space-y-10">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                     <div className="space-y-4">
                                         <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Full Identity</label>
@@ -916,6 +917,7 @@ export default function AdminPage() {
                                     {isSaving ? <Loader2 className="animate-spin" size={20} /> : <>FINALIZE ENTRANCE <ChevronRight size={18} strokeWidth={3} /></>}
                                 </button>
                             </form>
+                            </div>
                         </motion.div>
                     </div>
                 )}
@@ -924,20 +926,21 @@ export default function AdminPage() {
             {/* Big Identity View Overlay */}
             <AnimatePresence>
                 {selectedParticipant && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/95 backdrop-blur-3xl" onClick={() => setSelectedParticipant(null)}>
-                        <motion.div initial={{ opacity: 0, scale: 0.9, y: 30 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 30 }} className="bg-white rounded-[3rem] p-12 md:p-16 max-w-md w-full shadow-[0_0_100px_rgba(0,0,0,1)] relative" onClick={e => e.stopPropagation()}>
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-3xl" onClick={() => setSelectedParticipant(null)}>
+                        <motion.div initial={{ opacity: 0, scale: 0.9, y: 30 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 30 }} className="bg-white rounded-[3rem] w-full max-w-md max-h-[90vh] overflow-y-auto shadow-[0_0_100px_rgba(0,0,0,1)] relative scrollbar-hide" onClick={e => e.stopPropagation()}>
                             <div className="absolute top-0 right-10 h-16 w-1 bg-amber-500" />
 
-                            <div className="flex justify-between items-start mb-16">
-                                <div>
-                                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-3">System Identity Passport</p>
-                                    <h3 className="text-black text-4xl font-black leading-none tracking-tighter uppercase whitespace-pre-wrap">{selectedParticipant.name}</h3>
-                                    <p className="text-black/30 font-black uppercase text-[10px] mt-4 tracking-[0.2em]">{selectedParticipant.registerNumber}</p>
+                            <div className="p-8 md:p-12">
+                                <div className="flex justify-between items-start mb-16">
+                                    <div>
+                                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-3">System Identity Passport</p>
+                                        <h3 className="text-black text-4xl font-black leading-none tracking-tighter uppercase whitespace-pre-wrap">{selectedParticipant.name}</h3>
+                                        <p className="text-black/30 font-black uppercase text-[10px] mt-4 tracking-[0.2em]">{selectedParticipant.registerNumber}</p>
+                                    </div>
+                                    <X onClick={() => setSelectedParticipant(null)} className="text-black/10 hover:text-black cursor-pointer transition-colors flex-shrink-0" size={24} />
                                 </div>
-                                <X onClick={() => setSelectedParticipant(null)} className="text-black/10 hover:text-black cursor-pointer transition-colors" size={24} />
-                            </div>
 
-                            <div className="bg-[#f0f0f0] p-10 rounded-[2.5rem] mb-12 flex flex-col items-center justify-center border border-black/5 shadow-inner">
+                                <div className="bg-[#f0f0f0] p-10 rounded-[2.5rem] mb-12 flex flex-col items-center justify-center border border-black/5 shadow-inner">
                                 <QRCodeCanvas id={`qr-big-${selectedParticipant.id}`} value={selectedParticipant.qrValue} size={240} level="H" />
                                 <div className="mt-10 space-y-2 flex flex-col items-center">
                                     <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
@@ -964,6 +967,7 @@ export default function AdminPage() {
                             >
                                 <Download size={18} /> DOWNLOAD_AS_IMAGE
                             </button>
+                            </div>
                         </motion.div>
                     </div>
                 )}

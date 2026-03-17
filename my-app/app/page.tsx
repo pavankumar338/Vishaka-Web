@@ -75,7 +75,7 @@ export default function Home() {
             variants={fadin}
             className="relative perspective-1000"
           >
-            <h1 className="text-[18vw] md:text-[14rem] font-outfit font-black leading-[0.7] tracking-[-0.08em] select-none flex flex-col items-center">
+            <h1 className="text-[14vw] md:text-[14rem] font-outfit font-black leading-[0.8] tracking-[-0.08em] select-none flex flex-col items-center">
               <motion.span
                 className="text-white hover:text-amber-500 transition-colors duration-700 cursor-default"
                 whileHover={{ scale: 1.02, rotateX: 10 }}
@@ -105,7 +105,7 @@ export default function Home() {
           >
             <div className="flex gap-8">
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Link href="/login" className="group relative px-12 md:px-20 py-6 md:py-8 bg-white text-black font-outfit font-black text-[12px] md:text-[14px] tracking-[0.4em] rounded-full overflow-hidden block text-center shadow-[0_0_40px_rgba(255,255,255,0.1)]">
+                <Link href="/login" className="group relative px-8 md:px-20 py-5 md:py-8 bg-white text-black font-outfit font-black text-[10px] md:text-[14px] tracking-[0.4em] rounded-full overflow-hidden block text-center shadow-[0_0_40px_rgba(255,255,255,0.1)]">
                   <div className="absolute inset-0 bg-amber-500 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
                   <span className="relative z-10 flex items-center justify-center gap-4 whitespace-nowrap">
                     INITIALIZE SYSTEM <ChevronRight size={18} strokeWidth={3} />

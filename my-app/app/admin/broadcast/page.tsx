@@ -181,34 +181,34 @@ export default function MailsPage() {
                 <motion.header
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col lg:flex-row items-center justify-between gap-12 mb-20"
+                    className="flex flex-col lg:flex-row items-center justify-between gap-8 mb-12"
                 >
-                    <div className="flex items-center gap-6 w-full lg:w-auto">
+                    <div className="flex items-center gap-4 w-full lg:w-auto">
                         <Link
                             href="/admin"
-                            className="group p-4 bg-white/5 rounded-2xl hover:bg-amber-500 hover:text-black transition-all border border-white/5 active:scale-95 flex items-center justify-center shadow-2xl"
+                            className="group p-3 md:p-4 bg-white/5 rounded-2xl hover:bg-amber-500 hover:text-black transition-all border border-white/5 active:scale-95 flex items-center justify-center shadow-2xl"
                         >
                             <ArrowLeft size={24} strokeWidth={3} className="group-hover:-translate-x-1 transition-transform" />
                         </Link>
                         <div>
-                            <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Internal Relay System</p>
-                            <h1 className="text-4xl lg:text-5xl font-black text-white tracking-tighter uppercase leading-none italic">
+                            <p className="text-[8px] md:text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-1">Internal Relay System</p>
+                            <h1 className="text-2xl md:text-5xl font-black text-white tracking-tighter uppercase leading-none italic">
                                 Broadcas<span className="text-amber-500">t.</span>
                             </h1>
                         </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
-                        <div className="flex-grow lg:flex-none flex items-center gap-4 bg-white/[0.03] border border-white/5 px-6 py-4 rounded-xl">
-                            <Users size={18} className="text-amber-500" />
-                            <span className="text-[10px] font-black tracking-[0.2em] text-white/40 uppercase whitespace-nowrap">Selected: <span className="text-white">{selectedIds.length} Nodes</span></span>
+                    <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                        <div className="flex-grow lg:flex-none flex items-center gap-3 bg-white/[0.03] border border-white/5 px-4 md:px-6 py-3 md:py-4 rounded-xl">
+                            <Users size={16} className="text-amber-500" />
+                            <span className="text-[8px] md:text-[10px] font-black tracking-[0.2em] text-white/40 uppercase whitespace-nowrap">Selected: <span className="text-white">{selectedIds.length} Nodes</span></span>
                         </div>
                         <button
                             onClick={handleSendMails}
                             disabled={isSending || selectedIds.length === 0}
-                            className="flex-grow lg:flex-none flex items-center justify-center gap-3 bg-white text-black px-10 py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] hover:bg-amber-500 transition-all shadow-3xl active:scale-95 disabled:opacity-20 disabled:grayscale"
+                            className="flex-grow lg:flex-none flex items-center justify-center gap-3 bg-white text-black px-6 md:px-10 py-4 md:py-5 rounded-2xl font-black text-[9px] md:text-[11px] uppercase tracking-[0.3em] hover:bg-amber-500 transition-all shadow-3xl active:scale-95 disabled:opacity-20 disabled:grayscale"
                         >
-                            {isSending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} strokeWidth={3} />}
+                            {isSending ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} strokeWidth={3} />}
                             {isSending ? "INITIALIZING..." : "EXECUTE_DISPATCH"}
                         </button>
                     </div>
@@ -278,7 +278,7 @@ export default function MailsPage() {
                                     animate="visible"
                                     custom={i}
                                     onClick={() => toggleSelect(p.id)}
-                                    className={`flex flex-col md:flex-row items-start md:items-center gap-8 px-10 py-10 transition-all cursor-pointer group ${selectedIds.includes(p.id) ? 'bg-amber-500/[0.03]' : 'hover:bg-white/[0.01]'}`}
+                                    className={`flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-8 px-6 md:px-10 py-6 md:py-10 transition-all cursor-pointer group ${selectedIds.includes(p.id) ? 'bg-amber-500/[0.03]' : 'hover:bg-white/[0.01]'}`}
                                 >
                                     <div className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center transition-all ${selectedIds.includes(p.id) ? 'bg-amber-500 border-amber-500 shadow-2xl shadow-amber-500/20' : 'bg-transparent border-white/10 group-hover:border-white/20'}`}>
                                         {selectedIds.includes(p.id) && <CheckSquare size={18} strokeWidth={3} className="text-black" />}
