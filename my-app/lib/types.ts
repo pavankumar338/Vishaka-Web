@@ -1,5 +1,5 @@
 export interface Participant {
-    id: string; // Format: EVENT2026-PART-XXXX
+    id: string;
     name: string;
     registerNumber: string;
     year: string;

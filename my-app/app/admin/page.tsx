@@ -1,13 +1,24 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
-import { Plus, Trash2, User, Download, Search, Loader2, Wifi, Building, Users, ShieldCheck, QrCode, Mail, ScanLine, LogOut, LayoutDashboard, ChevronRight, X } from "lucide-react";
+import { Plus, Trash2, Download, Search, Loader2, Building, Users, ShieldCheck, QrCode, Mail, ScanLine, LogOut, LayoutDashboard, ChevronRight, X, Upload, FileText, AlertTriangle, CheckCircle2, Table2 } from "lucide-react";
 import { Participant } from "@/lib/types";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
+
+type CsvRow = {
+    name: string;
+    register_number: string;
+    year: string;
+    department: string;
+    section: string;
+    game: string;
+    email: string;
+    _error?: string;
+};
 
 export default function AdminPage() {
     const [participants, setParticipants] = useState<Participant[]>([]);
@@ -18,6 +29,17 @@ export default function AdminPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [baseUrl, setBaseUrl] = useState("");
     const router = useRouter();
+
+    // CSV Import state
+    const [showCsvModal, setShowCsvModal] = useState(false);
+    const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
+    const [csvFileName, setCsvFileName] = useState("");
+    const [csvImporting, setCsvImporting] = useState(false);
+    const [csvProgress, setCsvProgress] = useState(0);
+    const [csvDone, setCsvDone] = useState(false);
+    const [csvErrors, setCsvErrors] = useState<string[]>([]);
+    const [isDragging, setIsDragging] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [newParticipant, setNewParticipant] = useState({
         name: "",
@@ -216,6 +238,141 @@ export default function AdminPage() {
         }
     };
 
+    // ── CSV helpers ──────────────────────────────────────────────────────────
+    const REQUIRED_HEADERS = ["name", "register_number", "year", "department", "section", "game", "email"];
+
+    const parseCsv = (text: string): CsvRow[] => {
+        const lines = text.trim().split(/\r?\n/);
+        if (lines.length < 2) return [];
+
+        const rawHeaders = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/\s+/g, "_"));
+        const rows: CsvRow[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            // handle quoted values
+            const values: string[] = [];
+            let cur = "";
+            let inQuotes = false;
+            for (const ch of line) {
+                if (ch === '"') { inQuotes = !inQuotes; }
+                else if (ch === ',' && !inQuotes) { values.push(cur.trim()); cur = ""; }
+                else { cur += ch; }
+            }
+            values.push(cur.trim());
+
+            const row: any = {};
+            rawHeaders.forEach((h, idx) => { row[h] = values[idx] || ""; });
+
+            const errors: string[] = [];
+            REQUIRED_HEADERS.forEach(rh => {
+                if (!row[rh]) errors.push(`Missing: ${rh}`);
+            });
+
+            rows.push({
+                name: row["name"] || "",
+                register_number: row["register_number"] || "",
+                year: row["year"] || "",
+                department: row["department"] || "",
+                section: row["section"] || "",
+                game: row["game"] || "",
+                email: row["email"] || "",
+                _error: errors.length ? errors.join(", ") : undefined,
+            });
+        }
+        return rows;
+    };
+
+    const handleCsvFile = (file: File) => {
+        if (!file.name.endsWith(".csv")) {
+            alert("Please upload a valid .csv file.");
+            return;
+        }
+        setCsvFileName(file.name);
+        setCsvDone(false);
+        setCsvProgress(0);
+        setCsvErrors([]);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const text = e.target?.result as string;
+            const parsed = parseCsv(text);
+            setCsvRows(parsed);
+        };
+        reader.readAsText(file);
+    };
+
+    const handleCsvDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files[0];
+        if (file) handleCsvFile(file);
+    }, []);
+
+    // Generate next ID based on current max + offset for batch imports
+    const generateNextId = (currentMax: number) => {
+        const padded = (currentMax + 1).toString().padStart(4, "0");
+        return `Ugadi2026-${padded}`;
+    };
+
+    const handleBulkImport = async () => {
+        const validRows = csvRows.filter(r => !r._error);
+        if (!validRows.length) return;
+
+        setCsvImporting(true);
+        setCsvProgress(0);
+        setCsvErrors([]);
+
+        // Fetch current max id from DB
+        const { data: allIds } = await supabase
+            .from("participants")
+            .select("id");
+
+        let maxCount = 0;
+        (allIds || []).forEach((p: { id: string }) => {
+            const m = p.id.match(/Ugadi2026-(\d+)/);
+            if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
+        });
+
+        const errors: string[] = [];
+        for (let i = 0; i < validRows.length; i++) {
+            const row = validRows[i];
+            maxCount++;
+            const customId = generateNextId(maxCount - 1);
+            const { error } = await supabase.from("participants").insert([{
+                id: customId,
+                name: row.name,
+                email: row.email,
+                register_number: row.register_number,
+                year: row.year,
+                department: row.department,
+                section: row.section,
+                game: row.game,
+                event: "Ugadi Event 2026",
+                status: "registered",
+            }]);
+            if (error) errors.push(`Row ${i + 1} (${row.name}): ${error.message}`);
+            setCsvProgress(Math.round(((i + 1) / validRows.length) * 100));
+        }
+
+        setCsvErrors(errors);
+        setCsvImporting(false);
+        setCsvDone(true);
+        fetchParticipants();
+    };
+
+    const resetCsvModal = () => {
+        setCsvRows([]);
+        setCsvFileName("");
+        setCsvProgress(0);
+        setCsvDone(false);
+        setCsvErrors([]);
+        setShowCsvModal(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    // ─────────────────────────────────────────────────────────────────────────
+
     const fadin = {
         hidden: { opacity: 0, y: 10 },
         visible: (i: number) => ({
@@ -257,6 +414,9 @@ export default function AdminPage() {
                         <Link href="/admin/broadcast" className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/50 hover:text-white">
                             <Mail className="w-4 h-4" /> BROADCAST
                         </Link>
+                        <button onClick={() => setShowCsvModal(true)} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/50 hover:text-white">
+                            <Upload className="w-4 h-4 text-amber-500" /> IMPORT CSV
+                        </button>
                         <button onClick={() => setShowAddModal(true)} className="w-full md:w-auto flex items-center justify-center gap-3 bg-white text-black px-8 py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.3em] hover:bg-amber-500 transition-all shadow-2xl active:scale-95">
                             <Plus className="w-4 h-4 md:w-[18px] md:h-[18px]" strokeWidth={3} /> REGISTER NEW
                         </button>
@@ -472,6 +632,242 @@ export default function AdminPage() {
                 </motion.div>
             </div>
 
+
+            {/* ── CSV Import Modal ───────────────────────────────────────────────── */}
+            <AnimatePresence>
+                {showCsvModal && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-xl">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] flex flex-col"
+                        >
+                            {/* Modal Header */}
+                            <div className="p-8 md:p-12 border-b border-white/5 flex justify-between items-end flex-shrink-0">
+                                <div>
+                                    <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Bulk Data Ingestion</p>
+                                    <h2 className="text-2xl md:text-3xl font-black text-white leading-none uppercase tracking-tighter">Import CSV.</h2>
+                                    <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest mt-2">
+                                        Expected columns: name, register_number, year, department, section, game, email
+                                    </p>
+                                </div>
+                                <button onClick={resetCsvModal} className="w-11 h-11 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5 flex-shrink-0">
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-8 md:p-12 space-y-8">
+                                {/* Drop Zone */}
+                                {!csvRows.length && !csvDone && (
+                                    <div
+                                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                                        onDragLeave={() => setIsDragging(false)}
+                                        onDrop={handleCsvDrop}
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className={`relative border-2 border-dashed rounded-[2rem] p-12 md:p-20 flex flex-col items-center justify-center text-center gap-6 cursor-pointer transition-all duration-300 ${
+                                            isDragging
+                                                ? "border-amber-500/60 bg-amber-500/5"
+                                                : "border-white/10 hover:border-amber-500/30 hover:bg-white/[0.01]"
+                                        }`}
+                                    >
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept=".csv"
+                                            className="hidden"
+                                            onChange={(e) => { if (e.target.files?.[0]) handleCsvFile(e.target.files[0]); }}
+                                        />
+                                        <div className={`w-20 h-20 rounded-[1.8rem] flex items-center justify-center transition-colors ${
+                                            isDragging ? "bg-amber-500/20 text-amber-400" : "bg-white/[0.04] text-white/20"
+                                        }`}>
+                                            <Upload size={36} strokeWidth={1.5} />
+                                        </div>
+                                        <div>
+                                            <p className="text-white/60 font-black text-sm uppercase tracking-widest mb-2">
+                                                {isDragging ? "Release to upload" : "Drag & drop your CSV"}
+                                            </p>
+                                            <p className="text-white/20 text-[10px] uppercase tracking-[0.3em] font-bold">
+                                                or click to browse files
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2 opacity-30">
+                                            <FileText size={12} className="text-amber-500" />
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-white">.csv files only</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Template Download */}
+                                {!csvRows.length && !csvDone && (
+                                    <div className="flex items-center justify-between bg-white/[0.02] border border-white/5 rounded-2xl px-6 py-4">
+                                        <div className="flex items-center gap-3">
+                                            <Table2 size={16} className="text-amber-500" />
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Download template CSV</span>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                const template = "name,register_number,year,department,section,game,email\nJohn Doe,22CS001,2,CSE,A,Cricket,john@example.com";
+                                                const blob = new Blob([template], { type: "text/csv" });
+                                                const url = URL.createObjectURL(blob);
+                                                const a = document.createElement("a");
+                                                a.href = url; a.download = "participants_template.csv"; a.click();
+                                                URL.revokeObjectURL(url);
+                                            }}
+                                            className="flex items-center gap-2 text-amber-500 hover:text-amber-400 transition-colors text-[10px] font-black uppercase tracking-widest"
+                                        >
+                                            <Download size={14} /> Template
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Preview Table */}
+                                {csvRows.length > 0 && !csvDone && (
+                                    <div className="space-y-6">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <FileText size={16} className="text-amber-500" />
+                                                <span className="text-[11px] font-black uppercase tracking-widest text-white/60">{csvFileName}</span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400/80 bg-emerald-400/10 px-3 py-1 rounded-full">
+                                                    {csvRows.filter(r => !r._error).length} valid
+                                                </span>
+                                                {csvRows.some(r => r._error) && (
+                                                    <span className="text-[9px] font-black uppercase tracking-widest text-red-400/80 bg-red-400/10 px-3 py-1 rounded-full">
+                                                        {csvRows.filter(r => r._error).length} errors
+                                                    </span>
+                                                )}
+                                                <button
+                                                    onClick={() => { setCsvRows([]); setCsvFileName(""); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                                                    className="text-[9px] font-black uppercase tracking-widest text-white/20 hover:text-red-400 transition-colors"
+                                                >
+                                                    Clear
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="overflow-x-auto rounded-2xl border border-white/5 max-h-72">
+                                            <table className="w-full text-left border-collapse text-[10px] font-black uppercase tracking-widest">
+                                                <thead className="sticky top-0">
+                                                    <tr className="bg-[#111] border-b border-white/5 text-white/20">
+                                                        <th className="px-4 py-3">#</th>
+                                                        <th className="px-4 py-3">Name</th>
+                                                        <th className="px-4 py-3">Reg No.</th>
+                                                        <th className="px-4 py-3">Year</th>
+                                                        <th className="px-4 py-3">Dept</th>
+                                                        <th className="px-4 py-3">Sec</th>
+                                                        <th className="px-4 py-3">Game</th>
+                                                        <th className="px-4 py-3">Email</th>
+                                                        <th className="px-4 py-3">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-white/[0.03]">
+                                                    {csvRows.map((row, i) => (
+                                                        <tr key={i} className={row._error ? "bg-red-500/5" : "hover:bg-white/[0.01]"}>
+                                                            <td className="px-4 py-3 text-white/20">{i + 1}</td>
+                                                            <td className="px-4 py-3 text-white">{row.name || <span className="text-red-400">—</span>}</td>
+                                                            <td className="px-4 py-3 text-amber-500/70">{row.register_number || <span className="text-red-400">—</span>}</td>
+                                                            <td className="px-4 py-3 text-white/50">{row.year}</td>
+                                                            <td className="px-4 py-3 text-white/50">{row.department}</td>
+                                                            <td className="px-4 py-3 text-white/50">{row.section}</td>
+                                                            <td className="px-4 py-3 text-white/50">{row.game}</td>
+                                                            <td className="px-4 py-3 text-white/40">{row.email}</td>
+                                                            <td className="px-4 py-3">
+                                                                {row._error
+                                                                    ? <span className="text-red-400 flex items-center gap-1"><AlertTriangle size={10} /> Error</span>
+                                                                    : <span className="text-emerald-400">✓ OK</span>
+                                                                }
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Progress */}
+                                {csvImporting && (
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                                            <span className="text-white/40">Importing records...</span>
+                                            <span className="text-amber-500">{csvProgress}%</span>
+                                        </div>
+                                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                            <motion.div
+                                                animate={{ width: `${csvProgress}%` }}
+                                                className="h-full bg-amber-500 rounded-full"
+                                                transition={{ ease: "linear" }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Done State */}
+                                {csvDone && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="flex flex-col items-center gap-6 py-8 text-center"
+                                    >
+                                        <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                                            <CheckCircle2 size={32} strokeWidth={1.5} />
+                                        </div>
+                                        <div>
+                                            <p className="text-emerald-400 font-black text-sm uppercase tracking-widest">
+                                                Import Complete
+                                            </p>
+                                            <p className="text-white/30 text-[10px] uppercase tracking-widest mt-2">
+                                                {csvRows.filter(r => !r._error).length - csvErrors.length} of {csvRows.filter(r => !r._error).length} records added successfully.
+                                            </p>
+                                        </div>
+                                        {csvErrors.length > 0 && (
+                                            <div className="w-full bg-red-500/5 border border-red-500/10 rounded-2xl p-6 text-left space-y-2">
+                                                <p className="text-red-400 text-[10px] font-black uppercase tracking-widest mb-3">Failed rows:</p>
+                                                {csvErrors.map((e, i) => (
+                                                    <p key={i} className="text-red-400/60 text-[9px] font-mono">{e}</p>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </motion.div>
+                                )}
+                            </div>
+
+                            {/* Footer Actions */}
+                            <div className="p-8 md:p-12 border-t border-white/5 flex gap-4 flex-shrink-0">
+                                {!csvDone ? (
+                                    <>
+                                        <button
+                                            onClick={resetCsvModal}
+                                            className="flex-1 py-5 bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white/30 hover:text-white transition-all"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleBulkImport}
+                                            disabled={csvImporting || csvRows.filter(r => !r._error).length === 0}
+                                            className="flex-1 flex items-center justify-center gap-3 bg-white text-black py-5 rounded-2xl font-black uppercase tracking-[0.3em] text-[10px] hover:bg-amber-500 transition-all shadow-2xl disabled:opacity-40 active:scale-[0.98]"
+                                        >
+                                            {csvImporting
+                                                ? <><Loader2 size={18} className="animate-spin" /> Importing...</>
+                                                : <><Upload size={16} strokeWidth={3} /> Import {csvRows.filter(r => !r._error).length} Records</>
+                                            }
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        onClick={resetCsvModal}
+                                        className="w-full py-5 bg-white text-black rounded-2xl font-black uppercase tracking-[0.3em] text-[10px] hover:bg-amber-500 transition-all shadow-2xl active:scale-[0.98]"
+                                    >
+                                        Done
+                                    </button>
+                                )}
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
 
             {/* Modals & Overlays */}
             <AnimatePresence>
