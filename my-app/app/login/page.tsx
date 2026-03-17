@@ -32,9 +32,14 @@ export default function AdminLogin() {
         setError("");
 
         setTimeout(() => {
-            if (username === "admin" && password === "Vishaka@2026") {
+            if (role === "admin" && username.toLowerCase() === "admin" && password === "Vishaka@2026") {
                 localStorage.setItem("vishaka_admin_session", "true");
+                localStorage.setItem("vishaka_role", "admin");
                 router.push("/admin");
+            } else if (role === "volunteer" && username.toLowerCase() === "volunteer" && password === "Vishaka@2026") {
+                localStorage.setItem("vishaka_admin_session", "true");
+                localStorage.setItem("vishaka_role", "volunteer");
+                router.push("/admin/scan");
             } else {
                 setError("ACCESS DENIED: INVALID ADMINISTRATIVE CREDENTIALS");
                 setIsLoading(false);

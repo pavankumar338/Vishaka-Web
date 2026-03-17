@@ -44,8 +44,8 @@ export default function QRScannerPage() {
                 scannerRef.current = new Html5Qrcode("reader");
             }
 
-            const qrConfig = { 
-                fps: 30, 
+            const qrConfig = {
+                fps: 30,
                 qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
                     const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
                     const qrboxSize = Math.floor(minEdge * 0.7);
@@ -160,13 +160,28 @@ export default function QRScannerPage() {
                 return;
             }
 
-            const targetTable = scanMode === 'check-in' ? 'check_in_logs' : 'check_out_logs';
-            const { data: historyData } = await supabase
-                .from(targetTable)
+            const { data: checkInLogs } = await supabase
+                .from('check_in_logs')
                 .select('*')
                 .eq('participant_id', id)
                 .order('recorded_at', { ascending: false })
                 .limit(1);
+
+            const { data: checkOutLogs } = await supabase
+                .from('check_out_logs')
+                .select('*')
+                .eq('participant_id', id)
+                .order('recorded_at', { ascending: false })
+                .limit(1);
+
+            const hasCheckedIn = checkInLogs && checkInLogs.length > 0;
+            const hasCheckedOut = checkOutLogs && checkOutLogs.length > 0;
+
+            if (scanMode === 'check-out' && !hasCheckedIn) {
+                setError("OPERATION REJECTED. DELEGATE MUST CHECK IN FIRST.");
+                setParticipant(null);
+                return;
+            }
 
             setParticipant({
                 id: data.id,
@@ -183,8 +198,10 @@ export default function QRScannerPage() {
                 qrValue: ""
             });
 
-            if (historyData && historyData.length > 0) {
-                setLastAction(historyData[0]);
+            if (scanMode === 'check-in' && hasCheckedIn) {
+                setLastAction(checkInLogs[0]);
+            } else if (scanMode === 'check-out' && hasCheckedOut) {
+                setLastAction(checkOutLogs[0]);
             }
 
         } catch (err) {
@@ -231,8 +248,9 @@ export default function QRScannerPage() {
                 setShowToast(false);
                 resetScanner();
             }, 2500);
-        } catch (err) {
-            setError("ACTION_FAILED: DATABASE UPLOAD ERROR.");
+        } catch (err: any) {
+            console.error(err);
+            setError(`ACTION_FAILED: ${err?.message || "DATABASE UPLOAD ERROR."}`);
         } finally {
             setIsUpdating(false);
         }
@@ -463,7 +481,7 @@ export default function QRScannerPage() {
                                                 <p className="text-[9px] md:text-[10px] font-black text-amber-500/50 uppercase tracking-[0.3em] mb-2">Name</p>
                                                 <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter uppercase leading-[0.8]">{participant.name}</h2>
                                             </div>
-                                            
+
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 md:p-6 flex flex-col justify-center">
                                                     <p className="text-[8px] md:text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mb-1">Register Number</p>
@@ -602,8 +620,8 @@ export default function QRScannerPage() {
                         <ScanLine size={28} strokeWidth={3} />
                     </button>
                     <div className="w-px h-6 bg-white/10 flex-shrink-0" />
-                    <button 
-                        onClick={() => { setScanMode(scanMode === 'check-in' ? 'check-out' : 'check-in'); resetScanner(); }} 
+                    <button
+                        onClick={() => { setScanMode(scanMode === 'check-in' ? 'check-out' : 'check-in'); resetScanner(); }}
                         className={`transition-colors flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full ${scanMode === 'check-in' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'}`}
                         title="Toggle Check-in / Check-out Phase"
                     >
