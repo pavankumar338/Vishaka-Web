@@ -37,7 +37,7 @@ export default function MailsPage() {
             const { data, error } = await supabase
                 .from('participants')
                 .select('*')
-                .order('name', { ascending: true });
+                .order('id', { ascending: true });
 
             if (error) throw error;
 
@@ -78,12 +78,18 @@ export default function MailsPage() {
         }
     };
 
-    const filteredParticipants = participants.filter(
-        (p) =>
-            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.id.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredParticipants = participants
+        .filter(
+            (p) =>
+                p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                p.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                p.id.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+        .sort((a, b) => {
+            const numA = parseInt(a.id.match(/\d+/)?.[0] || "0", 10);
+            const numB = parseInt(b.id.match(/\d+/)?.[0] || "0", 10);
+            return numA - numB;
+        });
 
     const handleSendMails = async () => {
         if (selectedIds.length === 0) return;

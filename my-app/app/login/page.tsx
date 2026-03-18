@@ -32,7 +32,7 @@ export default function AdminLogin() {
         setError("");
 
         setTimeout(() => {
-            if (role === "admin" && username.toLowerCase() === "admin" && password === "Vishaka@2026") {
+            if (role === "admin" && username.toLowerCase() === "admin" && password === "VishakaEvent@2026") {
                 localStorage.setItem("vishaka_admin_session", "true");
                 localStorage.setItem("vishaka_role", "admin");
                 router.push("/admin");
