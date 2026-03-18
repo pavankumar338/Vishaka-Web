@@ -239,32 +239,56 @@ export default function AdminPage() {
     };
 
     // ── CSV helpers ──────────────────────────────────────────────────────────
-    const REQUIRED_HEADERS = ["name", "register_number", "year", "department", "section", "game", "email"];
+    const REQUIRED_HEADERS = ["name", "register_number", "year", "department", "section", "game"];
+    // email is optional
 
     const parseCsv = (text: string): CsvRow[] => {
         const lines = text.trim().split(/\r?\n/);
         if (lines.length < 2) return [];
 
-        const rawHeaders = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/\s+/g, "_"));
+        const headerLine = lines[0];
+        let delimiter = ",";
+        const commaCount = (headerLine.match(/,/g) || []).length;
+        const tabCount = (headerLine.match(/\t/g) || []).length;
+        const semiCount = (headerLine.match(/;/g) || []).length;
+        if (tabCount > commaCount && tabCount > semiCount) delimiter = "\t";
+        else if (semiCount > commaCount && semiCount > tabCount) delimiter = ";";
+
+        const rawHeaders = headerLine.split(delimiter).map(h => 
+            h.trim().toLowerCase().replace(/^["']|["']$/g, "").replace(/\s+/g, "_")
+        );
         const rows: CsvRow[] = [];
 
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i].trim();
             if (!line) continue;
 
-            // handle quoted values
             const values: string[] = [];
-            let cur = "";
-            let inQuotes = false;
-            for (const ch of line) {
-                if (ch === '"') { inQuotes = !inQuotes; }
-                else if (ch === ',' && !inQuotes) { values.push(cur.trim()); cur = ""; }
-                else { cur += ch; }
+            if (delimiter === ",") {
+                // handle quoted values for comma only
+                let cur = "";
+                let inQuotes = false;
+                for (const ch of line) {
+                    if (ch === '"') inQuotes = !inQuotes;
+                    else if (ch === ',' && !inQuotes) { values.push(cur.trim()); cur = ""; }
+                    else { cur += ch; }
+                }
+                values.push(cur.trim());
+            } else {
+                line.split(delimiter).forEach(v => values.push(v.trim().replace(/^["']|["']$/g, "")));
             }
-            values.push(cur.trim());
 
             const row: any = {};
-            rawHeaders.forEach((h, idx) => { row[h] = values[idx] || ""; });
+            rawHeaders.forEach((h, idx) => { 
+                const val = values[idx] || "";
+                row[h] = val;
+                
+                // Also map common aliases to required headers
+                if (h === "id" || h === "reg_no" || h === "register_no" || h === "enrollment_number" || h === "roll_no") row["register_number"] = val;
+                if (h === "dept") row["department"] = val;
+                if (h === "sec") row["section"] = val;
+                if (h === "event_name" || h === "event") row["game"] = val;
+            });
 
             const errors: string[] = [];
             REQUIRED_HEADERS.forEach(rh => {
@@ -277,7 +301,7 @@ export default function AdminPage() {
                 year: row["year"] || "",
                 department: row["department"] || "",
                 section: row["section"] || "",
-                game: row["game"] || "",
+                game: row["game"] || row["game_name"] || row["event"] || "",
                 email: row["email"] || "",
                 _error: errors.length ? errors.join(", ") : undefined,
             });
@@ -649,7 +673,7 @@ export default function AdminPage() {
                                     <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Bulk Data Ingestion</p>
                                     <h2 className="text-2xl md:text-3xl font-black text-white leading-none uppercase tracking-tighter">Import CSV.</h2>
                                     <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest mt-2">
-                                        Expected columns: name, register_number, year, department, section, game, email
+                                        Expected columns: name, register_number, year, department, section, game
                                     </p>
                                 </div>
                                 <button onClick={resetCsvModal} className="w-11 h-11 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5 flex-shrink-0">
@@ -707,7 +731,7 @@ export default function AdminPage() {
                                         </div>
                                         <button
                                             onClick={() => {
-                                                const template = "name,register_number,year,department,section,game,email\nJohn Doe,22CS001,2,CSE,A,Cricket,john@example.com";
+                                                const template = "name,register_number,year,department,section,game,email\nJohn Doe,22CS001,2,CSE,A,Cricket,";
                                                 const blob = new Blob([template], { type: "text/csv" });
                                                 const url = URL.createObjectURL(blob);
                                                 const a = document.createElement("a");
@@ -909,8 +933,8 @@ export default function AdminPage() {
                                         <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="GAME" value={newParticipant.game} onChange={(e) => setNewParticipant({ ...newParticipant, game: e.target.value })} />
                                     </div>
                                     <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Email</label>
-                                        <input type="email" required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="EMAIL" value={newParticipant.email} onChange={(e) => setNewParticipant({ ...newParticipant, email: e.target.value })} />
+                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Email (Optional)</label>
+                                        <input type="email" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="EMAIL" value={newParticipant.email} onChange={(e) => setNewParticipant({ ...newParticipant, email: e.target.value })} />
                                     </div>
                                 </div>
                                 <button type="submit" disabled={isSaving} className="w-full bg-white text-black py-6 rounded-xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 transition-all flex items-center justify-center gap-4 shadow-3xl disabled:opacity-50">
