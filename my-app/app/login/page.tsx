@@ -36,7 +36,7 @@ export default function AdminLogin() {
                 localStorage.setItem("vishaka_admin_session", "true");
                 localStorage.setItem("vishaka_role", "admin");
                 router.push("/admin");
-            } else if (role === "volunteer" && username.toLowerCase() === "volunteer" && password === "ViUG@2026") {
+            } else if (role === "volunteer" && username.toLowerCase() === "volunteer" && password === "Vi@2026") {
                 localStorage.setItem("vishaka_admin_session", "true");
                 localStorage.setItem("vishaka_role", "volunteer");
                 router.push("/admin/scan");
