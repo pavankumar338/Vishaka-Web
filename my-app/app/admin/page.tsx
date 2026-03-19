@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
-import { Plus, Trash2, Download, Search, Loader2, Building, Users, ShieldCheck, QrCode, Mail, ScanLine, LogOut, LayoutDashboard, ChevronRight, X, Upload, FileText, AlertTriangle, CheckCircle2, Table2 } from "lucide-react";
+import { Plus, Trash2, Download, Search, Loader2, Building, Users, ShieldCheck, QrCode, Mail, ScanLine, LogOut, LayoutDashboard, ChevronRight, X, Upload, FileText, AlertTriangle, CheckCircle2, Table2, RefreshCw } from "lucide-react";
 import { Participant } from "@/lib/types";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
@@ -209,6 +209,28 @@ export default function AdminPage() {
             setParticipants(participants.filter((p) => p.id !== id));
         } catch (error) {
             alert("Deletion failed.");
+        }
+    };
+
+    const handleResetDay = async () => {
+        if (!confirm("This will reset all attendees' statuses back to 'registered' for a new attendance day. Are you sure?")) return;
+        
+        setIsSaving(true);
+        try {
+            const { error } = await supabase
+                .from('participants')
+                .update({ status: 'registered' })
+                .neq('status', 'registered');
+            
+            if (error) throw error;
+            
+            alert("Attendance successfully reset for a new day.");
+            fetchParticipants();
+        } catch (error: any) {
+            console.error('Error resetting attendance:', error);
+            alert("Error resetting attendance: " + (error?.message || JSON.stringify(error)));
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -438,6 +460,9 @@ export default function AdminPage() {
                         <Link href="/admin/broadcast" className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/50 hover:text-white">
                             <Mail className="w-4 h-4" /> BROADCAST
                         </Link>
+                        <button onClick={handleResetDay} disabled={isSaving} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-red-500/80 hover:text-red-400 disabled:opacity-50">
+                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin text-red-500" /> : <RefreshCw className="w-4 h-4 text-red-500" />} RESET DAY
+                        </button>
                         <button onClick={() => setShowCsvModal(true)} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/50 hover:text-white">
                             <Upload className="w-4 h-4 text-amber-500" /> IMPORT CSV
                         </button>
