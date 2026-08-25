@@ -3,14 +3,25 @@
 import Link from "next/link";
 import { QrCode, Mail, Settings, ArrowUpRight, LogIn, ChevronRight, Sparkles, Shield, Zap } from "lucide-react";
 import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export default function Home() {
   const [isHovered, setIsHovered] = useState<number | null>(null);
   const containerRef = useRef(null);
   const { scrollYProgress } = useScroll();
   const yRange = useTransform(scrollYProgress, [0, 1], [0, 100]);
-
+  useEffect(() => {
+    const elems = document.querySelectorAll('.fade-in-on-scroll');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    });
+    elems.forEach(el => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
   const fadin: any = {
     hidden: { opacity: 0, y: 20 },
     visible: (i: number) => ({
@@ -73,9 +84,9 @@ export default function Home() {
             initial="hidden"
             animate="visible"
             variants={fadin}
-            className="relative perspective-1000"
+            className="relative perspective-1000 fade-in-on-scroll"
           >
-            <h1 className="text-[14vw] md:text-[14rem] font-outfit font-black leading-[0.8] tracking-[-0.08em] select-none flex flex-col items-center">
+            <h1 className="text-5xl md:text-9xl lg:text-[14rem] font-outfit font-black leading-[0.0] tracking-[-0.08em] select-none flex flex-col items-center">
               <motion.span
                 className="text-white hover:text-amber-500 transition-colors duration-700 cursor-default"
                 whileHover={{ scale: 1.02, rotateX: 10 }}
@@ -101,7 +112,7 @@ export default function Home() {
             initial="hidden"
             animate="visible"
             variants={fadin}
-            className="flex flex-col items-center justify-center gap-12 mt-16 md:mt-24"
+            className="flex flex-col items-center justify-center gap-12 mt-16 md:mt-24 fade-in-on-scroll"
           >
             <div className="flex gap-8">
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
