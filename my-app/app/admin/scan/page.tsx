@@ -252,7 +252,9 @@ export default function QRScannerPage() {
             // Step 4: Set participant state
             setParticipant({
                 id: pId,
+                participant_id: pId,
                 name: data.participant_name || data.name || "Unknown Delegate",
+                participant_name: data.participant_name || data.name || "Unknown Delegate",
                 registerNumber: data.register_number || "N/A",
                 year: data.year || "N/A",
                 department: data.department || "N/A",

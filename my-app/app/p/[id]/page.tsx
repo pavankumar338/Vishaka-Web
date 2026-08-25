@@ -36,7 +36,9 @@ export default function ParticipantProfile() {
                 if (data) {
                     setParticipant({
                         id: data.participant_id || data.id,
+                        participant_id: data.participant_id || data.id,
                         name: data.participant_name || data.name,
+                        participant_name: data.participant_name || data.name,
                         registerNumber: data.register_number,
                         year: data.year,
                         department: data.department,

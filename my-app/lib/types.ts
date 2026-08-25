@@ -1,8 +1,8 @@
 export interface Participant {
     id: string;
-    participant_id: string;
+    participant_id?: string;
     name: string;
-    participant_name: string;
+    participant_name?: string;
     registerNumber: string;
     year: string;
     department: string;
