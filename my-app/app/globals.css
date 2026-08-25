@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+@source "../app";
+@source "../lib";
+@source "../components";
+@source "../**/*.{js,ts,jsx,tsx,mdx}";
+@source "./**/*.{js,ts,jsx,tsx,mdx}";
+
 @theme {
   --font-inter: var(--font-inter), sans-serif;
   --font-outfit: var(--font-outfit), sans-serif;
