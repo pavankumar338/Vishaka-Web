@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { QrCode, Mail, Settings, ArrowUpRight, LogIn, ChevronRight, Sparkles, Shield, Zap } from "lucide-react";
-import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
+import { QrCode, Mail, Settings, ArrowUpRight, ChevronRight } from "lucide-react";
+import { motion, useScroll, useTransform } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
 
 export default function Home() {
