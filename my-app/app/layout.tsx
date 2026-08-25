@@ -17,7 +17,6 @@ export const metadata: Metadata = {
   description: "Minimal & Professional Event Management System | QR Pass Identification",
 };
 
-import Image from "next/image";
 import Header from "./components/Header";
 
 export default function RootLayout({

@@ -1,6 +1,9 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --font-inter: var(--font-inter), sans-serif;
+  --font-outfit: var(--font-outfit), sans-serif;
+}
 
 :root {
   --background: #050505;
@@ -9,54 +12,45 @@
   --color-amber: #f59e0b;
   --color-amber-light: #ffb347;
   --color-text-primary: #e0e0e0;
-  --font-size-hero: clamp(2rem, 10vw, 14rem);
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
+  font-family: var(--font-inter), sans-serif;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+::-webkit-scrollbar-thumb {
+  background: #222226;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #33333b;
 }
 
-.fade-in-on-scroll {
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
-}
-.fade-in-on-scroll.visible {
-  opacity: 1;
-  transform: translateY(0);
+/* Autofill styling fix for dark theme */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 40px #0e0e11 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
-@layer utilities {
-  ::-webkit-scrollbar {
-    width: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: #0a0a0b;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #1c1c21;
-    border-radius: 10px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #2a2a32;
-  }
-}
-/* Premium Dark + Amber Theme */
-/* Duplicate root removed; vars consolidated above */
-
+/* Base utility helpers */
 .home-bg {
   background: var(--color-bg);
   color: var(--color-text-primary);
@@ -65,51 +59,42 @@ body {
 }
 
 .glass {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 2rem;
   backdrop-filter: blur(12px);
-  transition: all 0.4s ease;
-}
-@supports not (backdrop-filter: blur(0)) {
-  .glass {
-    background: rgba(255,255,255,0.03);
-  }
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .glass:hover {
-  background: rgba(255,255,255,0.06);
-  border-color: var(--color-amber);
-  box-shadow: 0 0 20px rgba(245,158,11,0.4);
-}
-
-.hero-cta {
-  display: flex;
-  gap: 1.5rem;
-  margin-top: 3rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: 0 10px 30px -10px rgba(245, 158, 11, 0.2);
 }
 
 .hero-cta-button {
-  background: rgba(255,255,255,0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(245, 158, 11, 0.05);
   color: var(--color-amber);
-  border: 1px solid var(--color-amber);
-  padding: 0.75rem 2rem;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  padding: 0.9rem 2.5rem;
   border-radius: 9999px;
   font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.4em;
-  transition: all 0.3s ease;
+  letter-spacing: 0.35em;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   cursor: pointer;
   outline: none;
-}
-.hero-cta-button:focus-visible {
-  outline: 2px solid var(--color-amber);
-  outline-offset: 2px;
+  text-decoration: none;
 }
 
 .hero-cta-button:hover,
 .hero-cta-button:focus-visible {
   background: var(--color-amber);
   color: #050505;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.5);
   transform: translateY(-2px);
 }

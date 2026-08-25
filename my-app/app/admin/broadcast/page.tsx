@@ -338,22 +338,7 @@ export default function MailsPage() {
 
             {/* Global Theme Overlay */}
             <div className="fixed inset-0 pointer-events-none border-[30px] border-[#000] opacity-20 hidden lg:block" />
-
-            <style jsx global>{`
-                @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@900&family=Inter:wght@400;700;900&display=swap');
-                
-                :root {
-                    --font-outfit: 'Outfit', sans-serif;
-                    --font-inter: 'Inter', sans-serif;
-                }
-                
-                body {
-                    background-color: #050505;
-                    margin: 0;
-                    padding: 0;
-                    overflow-x: hidden;
-                }
-            `}</style>
         </div>
     );
 }
+

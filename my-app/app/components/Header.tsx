@@ -18,6 +18,7 @@ export default function Header() {
 
   const handleLogout = () => {
     localStorage.removeItem("vishaka_admin_session");
+    localStorage.removeItem("vishaka_role");
     setIsAdmin(false);
     router.push("/");
   };
@@ -25,20 +26,20 @@ export default function Header() {
   const isDashboard = pathname?.startsWith("/admin");
 
   return (
-    <header className="w-full relative z-50 pt-3 md:pt-6 px-3 md:px-6">
-      <nav className="max-w-7xl mx-auto px-4 md:px-8 py-4 md:py-6 flex items-center justify-between bg-[#0a0a0a]/90 backdrop-blur-2xl border border-white/10 rounded-[1.5rem] md:rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-500">
+    <header className="w-full relative z-50 pt-4 md:pt-6 px-4 md:px-8">
+      <nav className="max-w-7xl mx-auto px-5 md:px-8 py-3.5 md:py-4 flex items-center justify-between bg-[#0a0a0c]/80 backdrop-blur-xl border border-white/10 rounded-2xl md:rounded-full shadow-2xl transition-all duration-300">
         {/* Logo & Brand */}
-        <Link href="/" className="flex items-center gap-2 md:gap-4 group">
-          <div className="relative w-8 h-8 md:w-16 md:h-16 transition-transform duration-700 group-hover:scale-110">
+        <Link href="/" className="flex items-center gap-3 group no-underline">
+          <div className="relative w-8 h-8 md:w-10 md:h-10 transition-transform duration-500 group-hover:scale-105">
             <Image
               src="/side-image.png"
               alt="Vishaka Logo"
               fill
-              className="object-contain filter brightness-110 drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]"
+              className="object-contain filter brightness-110 drop-shadow-[0_0_12px_rgba(245,158,11,0.4)]"
             />
           </div>
           <div className="flex flex-col">
-            <span className="font-outfit font-black text-sm md:text-3xl tracking-[0.05em] text-white leading-tight uppercase">
+            <span className="font-outfit font-black text-sm md:text-xl tracking-wider text-white leading-tight uppercase">
               VISHAKA <span className="text-amber-500">2K26</span>
             </span>
           </div>
@@ -48,20 +49,18 @@ export default function Header() {
           {isDashboard || isAdmin ? (
             <button
               onClick={handleLogout}
-              className="group relative flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-500 px-5 md:px-10 py-2.5 md:py-5 rounded-full text-[10px] md:text-[13px] font-black tracking-[0.2em] overflow-hidden transition-all duration-500 hover:bg-red-500 hover:text-white shadow-2xl active:scale-95"
+              className="group relative flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 hover:text-white px-4 md:px-6 py-2 md:py-2.5 rounded-full text-xs font-black tracking-widest uppercase transition-all duration-300 hover:bg-red-500 shadow-lg active:scale-95 cursor-pointer"
             >
-              <span className="relative z-10 flex items-center gap-2">
-                LOGOUT <LogOut size={14} strokeWidth={3} className="hidden md:block group-hover:scale-110 transition-transform" />
-              </span>
+              <span>LOGOUT</span>
+              <LogOut size={14} strokeWidth={2.5} className="group-hover:scale-110 transition-transform" />
             </button>
           ) : (
             <Link 
               href="/login" 
-              className="group relative flex items-center gap-2 bg-white text-black px-5 md:px-10 py-2.5 md:py-5 rounded-full text-[10px] md:text-[13px] font-black tracking-[0.2em] overflow-hidden transition-all duration-500 hover:bg-amber-500 shadow-2xl hover:shadow-amber-500/20 active:scale-95"
+              className="group relative flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-black px-4 md:px-6 py-2 md:py-2.5 rounded-full text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-lg shadow-amber-500/20 active:scale-95 no-underline"
             >
-              <span className="relative z-10 flex items-center gap-2">
-                PORTAL <LogIn size={14} strokeWidth={3} className="hidden md:block group-hover:translate-x-1 transition-transform" />
-              </span>
+              <span>PORTAL</span>
+              <LogIn size={14} strokeWidth={2.5} className="group-hover:translate-x-0.5 transition-transform" />
             </Link>
           )}
         </div>
