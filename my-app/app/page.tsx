@@ -48,7 +48,7 @@ export default function Home() {
   ];
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-[#050505] text-[#e0e0e0] font-sans selection:bg-amber-500/30 selection:text-amber-200 overflow-x-hidden">
+    <div ref={containerRef} className="home-bg font-sans selection:bg-amber-500/30 selection:text-amber-200 overflow-x-hidden">
 
       {/* Dynamic Interactive Background */}
       <div className="fixed inset-0 pointer-events-none z-0">
@@ -105,7 +105,7 @@ export default function Home() {
           >
             <div className="flex gap-8">
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Link href="/login" className="group relative px-8 md:px-20 py-5 md:py-8 bg-white text-black font-outfit font-black text-[10px] md:text-[14px] tracking-[0.4em] rounded-full overflow-hidden block text-center shadow-[0_0_40px_rgba(255,255,255,0.1)]">
+                <Link href="/login" className="hero-cta-button font-outfit font-black text-[10px] md:text-[14px] tracking-[0.4em] rounded-full overflow-hidden block text-center">
                   <div className="absolute inset-0 bg-amber-500 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
                   <span className="relative z-10 flex items-center justify-center gap-4 whitespace-nowrap">
                     INITIALIZE SYSTEM <ChevronRight size={18} strokeWidth={3} />
@@ -130,7 +130,7 @@ export default function Home() {
                 variants={fadin}
                 onMouseEnter={() => setIsHovered(f.id)}
                 onMouseLeave={() => setIsHovered(null)}
-                className="relative group p-[1px] rounded-[2.5rem] overflow-hidden bg-white/5 hover:bg-gradient-to-br hover:from-amber-500/40 hover:to-transparent transition-all duration-1000 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+                className="relative group p-[1px] rounded-[2.5rem] overflow-hidden glass hover:bg-gradient-to-br hover:from-amber-500/40 hover:to-transparent transition-all duration-1000 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
               >
                 <div className="relative z-10 bg-[#080808]/90 backdrop-blur-sm p-10 md:p-12 h-full rounded-[2.5rem] flex flex-col border border-white/[0.05] group-hover:border-amber-500/20 transition-all duration-700">
                   <div className="flex justify-between items-start mb-14">
