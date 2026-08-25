@@ -37,19 +37,24 @@ export default function MailsPage() {
             const { data, error } = await supabase
                 .from('participants')
                 .select('*')
-                .order('id', { ascending: true });
+                .order('participant_id', { ascending: true });
 
             if (error) throw error;
 
             const mappedData: Participant[] = (data || []).map(item => ({
-                id: item.id,
-                name: item.name,
+                id: item.participant_id,
+                participant_id: item.participant_id,
+                name: item.participant_name,
+                participant_name: item.participant_name,
                 registerNumber: item.register_number || "",
                 year: item.year || "",
                 department: item.department || "",
                 section: item.section || "",
                 game: item.game || "",
                 email: item.email || "",
+                mobile: item.mobile || item.phone || "",
+                category: item.category || "",
+                culturalInterest: item.cultural_interest || item.culturals || "",
                 status: item.status,
                 event: item.event,
                 registrationDate: new Date(item.created_at).toLocaleDateString(),

@@ -16,27 +16,38 @@ export default function ParticipantProfile() {
     useEffect(() => {
         async function getParticipant() {
             try {
-                const { data, error } = await supabase
+                let { data, error } = await supabase
                     .from('participants')
                     .select('*')
-                    .eq('id', id)
-                    .single();
+                    .eq('participant_id', id)
+                    .maybeSingle();
 
-                if (error) throw error;
+                if (!data && !error) {
+                    const fallback = await supabase
+                        .from('participants')
+                        .select('*')
+                        .eq('id', id)
+                        .maybeSingle();
+                    if (fallback.data) data = fallback.data;
+                }
+
+                if (error && !data) throw error;
 
                 if (data) {
                     setParticipant({
-                        id: data.id,
-                        name: data.name,
+                        id: data.participant_id || data.id,
+                        name: data.participant_name || data.name,
                         registerNumber: data.register_number,
                         year: data.year,
                         department: data.department,
                         section: data.section,
                         game: data.game,
                         email: data.email,
+                        category: data.category || "",
+                        culturalInterest: data.cultural_interest || data.culturals || "",
                         status: data.status,
                         event: data.event,
-                        registrationDate: new Date(data.created_at).toLocaleDateString(),
+                        registrationDate: new Date(data.created_at || Date.now()).toLocaleDateString(),
                         qrValue: ""
                     });
                 }

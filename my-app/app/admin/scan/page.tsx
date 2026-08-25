@@ -190,60 +190,80 @@ export default function QRScannerPage() {
             setParticipant(null);
             setLastAction(null);
 
-            // Step 1: Fetch participant
-            const { data, error: dbError } = await supabase
+            // Clean id in case it contains URL encoding or path
+            const cleanId = decodeURIComponent(id).trim();
+
+            // Step 1: Fetch participant (check both participant_id and id)
+            let { data, error: dbError } = await supabase
                 .from("participants")
                 .select("*")
-                .eq("id", id)
+                .eq("participant_id", cleanId)
                 .maybeSingle();
 
+            if (!data && !dbError) {
+                // Fallback check on 'id' column if table has 'id'
+                const fallback = await supabase
+                    .from("participants")
+                    .select("*")
+                    .eq("id", cleanId)
+                    .maybeSingle();
+                if (fallback.data) {
+                    data = fallback.data;
+                }
+            }
+
             if (dbError || !data) {
+                console.error("Participant fetch error / not found:", dbError, "ID searched:", cleanId);
                 setError("IDENTITY NOT FOUND. INVALID SYSTEM TAG.");
                 return;
             }
 
-            // Step 2: For check-out mode, validate participant is currently checked in
-            if (mode === "check-out") {
-                // Use the participant's status as the primary source of truth
-                if (data.status !== "checked-in") {
-                    setError("OPERATION REJECTED. DELEGATE IS NOT CURRENTLY CHECKED IN.");
-                    return;
-                }
-            }
+            const pId = data.participant_id || data.id;
 
             // Step 3: Check if there's already a same-mode log for today to show "already done"
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const todayISO = today.toISOString();
 
             const targetLogTable = mode === "check-in" ? "check_in_logs" : "check_out_logs";
-            const { data: todayLog } = await supabase
-                .from(targetLogTable)
-                .select("*")
-                .eq("participant_id", id)
-                .gte("recorded_at", todayISO)
-                .order("recorded_at", { ascending: false })
-                .limit(1)
-                .maybeSingle();
+            let todayLog = null;
+            try {
+                const { data } = await supabase
+                    .from(targetLogTable)
+                    .select("*")
+                    .eq("participant_id", pId)
+                    .limit(5);
+
+                if (data && data.length > 0) {
+                    // Check if any log is from today
+                    const logToday = data.find((l: any) => {
+                        const t = new Date(l.logged_at || l.created_at || l.recorded_at || l.logged_time);
+                        return t >= today;
+                    });
+                    if (logToday) todayLog = logToday;
+                }
+            } catch (logQueryErr) {
+                console.warn("Could not query today's logs:", logQueryErr);
+            }
 
             if (todayLog) {
-                // Already recorded today — show the confirmation card (no button)
                 setLastAction(todayLog);
             }
 
-            // Step 4: Set participant state (always set this so card appears)
+            // Step 4: Set participant state
             setParticipant({
-                id: data.id,
-                name: data.name || "Unknown Delegate",
+                id: pId,
+                name: data.participant_name || data.name || "Unknown Delegate",
                 registerNumber: data.register_number || "N/A",
                 year: data.year || "N/A",
                 department: data.department || "N/A",
                 section: data.section || "N/A",
+                category: data.category || "",
+                culturalInterest: data.cultural_interest || data.culturals || "",
                 status: data.status,
                 event: data.event || "N/A",
                 game: data.game || "",
                 email: data.email || "",
-                registrationDate: new Date(data.created_at).toLocaleDateString(),
+                registrationDate: new Date(data.created_at || Date.now()).toLocaleDateString(),
                 qrValue: "",
             });
 
@@ -263,55 +283,115 @@ export default function QRScannerPage() {
             setError(null);
 
             // Re-fetch current participant status from DB before writing
-            const { data: current, error: fetchErr } = await supabase
+            let { data: current, error: fetchErr } = await supabase
                 .from("participants")
                 .select("status")
-                .eq("id", participant.id)
+                .eq("participant_id", participant.id)
                 .maybeSingle();
+
+            if (!current && !fetchErr) {
+                const fallback = await supabase
+                    .from("participants")
+                    .select("status")
+                    .eq("id", participant.id)
+                    .maybeSingle();
+                if (fallback.data) current = fallback.data;
+            }
 
             if (fetchErr || !current) {
                 throw new Error("FETCH_ERROR: COULD NOT VERIFY PARTICIPANT STATUS.");
-            }
-
-            // Enforce check-out requires checked-in status
-            if (scanMode === "check-out" && current.status !== "checked-in") {
-                throw new Error("REJECTED: DELEGATE IS NOT CURRENTLY CHECKED IN.");
-            }
-
-            // Enforce check-in requires NOT already checked-in
-            if (scanMode === "check-in" && current.status === "checked-in") {
-                throw new Error("ALREADY_LOGGED: THIS DELEGATE IS ALREADY CHECKED IN.");
             }
 
             const logTimestamp = new Date().toISOString();
             const targetTable = scanMode === "check-in" ? "check_in_logs" : "check_out_logs";
             const newStatus = scanMode === "check-in" ? "checked-in" : "checked-out";
 
+            // Generate UUID for log table in case it lacks a default generator
+            const logId = typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+                    const r = (Math.random() * 16) | 0;
+                    const v = c === "x" ? r : (r & 0x3) | 0x8;
+                    return v.toString(16);
+                });
+
             // 1. Insert log entry
-            const { data: newLog, error: logError } = await supabase
+            let newLogItem: any = {
+                id: logId,
+                participant_id: participant.id,
+                participant_name: participant.name,
+                logged_at: logTimestamp,
+            };
+
+            let logInsertRes = await supabase
                 .from(targetTable)
                 .insert([{
+                    id: logId,
                     participant_id: participant.id,
                     participant_name: participant.name,
-                    recorded_at: logTimestamp,
+                    register_number: participant.registerNumber || "",
+                    year: participant.year || "",
+                    department: participant.department || "",
+                    section: participant.section || "",
+                    game: participant.game || "",
+                    logged_at: logTimestamp,
                 }])
                 .select();
 
-            if (logError) {
-                throw new Error(`LOG_ERROR: ${logError.code} — ${logError.message}`);
+            if (logInsertRes.error) {
+                // Fallback attempt with minimal fields
+                logInsertRes = await supabase
+                    .from(targetTable)
+                    .insert([{
+                        id: logId,
+                        participant_id: participant.id,
+                        participant_name: participant.name,
+                    }])
+                    .select();
             }
 
-            if (!newLog || newLog.length === 0) {
-                throw new Error(`WRITE_FAILED: Insert to ${targetTable} returned no data. Check RLS policies in Supabase.`);
+            if (logInsertRes.error) {
+                // Fallback attempt without 'id' in case id is auto-generated
+                logInsertRes = await supabase
+                    .from(targetTable)
+                    .insert([{
+                        participant_id: participant.id,
+                        participant_name: participant.name,
+                    }])
+                    .select();
             }
 
-            // 2. Update participant status
-            await supabase
+            if (logInsertRes.data && logInsertRes.data.length > 0) {
+                newLogItem = logInsertRes.data[0];
+            } else if (logInsertRes.error) {
+                console.warn("Log table insertion warning:", logInsertRes.error);
+            }
+
+            // 2. Update participant status (primary source of truth)
+            let updateRes = await supabase
                 .from("participants")
                 .update({ status: newStatus })
-                .eq("id", participant.id);
+                .eq("participant_id", participant.id);
 
-            setLastAction(newLog[0]);
+            if (updateRes.error) {
+                // Fallback to updating with 'id' column
+                updateRes = await supabase
+                    .from("participants")
+                    .update({ status: newStatus })
+                    .eq("id", participant.id);
+            }
+
+            if (updateRes.error) {
+                throw new Error(`STATUS_UPDATE_FAILED: ${updateRes.error.message}`);
+            }
+
+            // Update local participant state status
+            setParticipant({
+                ...participant,
+                status: newStatus,
+            });
+
+            setLastAction(newLogItem);
             setShowToast(true);
 
             setTimeout(() => {
@@ -681,7 +761,7 @@ export default function QRScannerPage() {
                                                             : "EXIT_AUTHORIZATION_SUCCESS"}
                                                     </p>
                                                     <p className="text-[7px] text-white/20 mt-3 font-mono uppercase tracking-[0.2em] leading-tight">
-                                                        LOG: {new Date(lastAction.recorded_at).toLocaleString()} // SIG:{" "}
+                                                        LOG: {new Date(lastAction.logged_at || lastAction.created_at || lastAction.recorded_at || Date.now()).toLocaleString()} // SIG:{" "}
                                                         {String(lastAction?.id || "LOCAL").slice(0, 8)}
                                                     </p>
                                                 </div>

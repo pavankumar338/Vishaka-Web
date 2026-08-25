@@ -10,14 +10,12 @@ export async function GET() {
     // Fetch ALL records from check_in_logs
     const { data: checkInRows, error: ciError } = await supabase
         .from('check_in_logs')
-        .select('*')
-        .order('recorded_at', { ascending: false });
+        .select('*');
 
     // Fetch ALL records from check_out_logs
     const { data: checkOutRows, error: coError } = await supabase
         .from('check_out_logs')
-        .select('*')
-        .order('recorded_at', { ascending: false });
+        .select('*');
 
     // Fetch participants
     const { data: participants } = await supabase

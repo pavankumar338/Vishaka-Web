@@ -16,7 +16,10 @@ type CsvRow = {
     department: string;
     section: string;
     game: string;
+    category: string;
+    culturals: string;
     email: string;
+    mobile: string;
     _error?: string;
 };
 
@@ -49,7 +52,10 @@ export default function AdminPage() {
         section: "",
         game: "",
         email: "",
-        event: "Ugadi Event 2026",
+        mobile: "",
+        category: "",
+        culturalInterest: "",
+        event: "Splash Event 2026",
     });
 
     useEffect(() => {
@@ -77,7 +83,7 @@ export default function AdminPage() {
         if (participants.length > 0) {
             setParticipants(prev => prev.map(p => ({
                 ...p,
-                qrValue: `${baseUrl}/p/${p.id}`
+                qrValue: `${baseUrl}/p/${p.participant_id || p.id}`
             })));
         }
     }, [baseUrl]);
@@ -110,23 +116,31 @@ export default function AdminPage() {
             if (error) throw error;
 
             const mappedData: Participant[] = (data || []).map(item => ({
-                id: item.id,
-                name: item.name,
+                id: item.participant_id,
+                participant_id: item.participant_id,
+                name: item.participant_name,
+                participant_name: item.participant_name,
                 registerNumber: item.register_number || "",
                 year: item.year || "",
                 department: item.department || "",
                 section: item.section || "",
                 game: item.game || "",
                 email: item.email || "",
+                mobile: item.mobile || item.phone || "",
+                category: item.category || "",
+                culturalInterest: item.cultural_interest || item.culturals || "",
                 status: item.status,
                 event: item.event,
                 registrationDate: new Date(item.created_at).toLocaleDateString(),
-                qrValue: `${baseUrl}/p/${item.id}`
+                qrValue: `${baseUrl}/p/${item.participant_id}`
             }));
 
             setParticipants(mappedData);
         } catch (error) {
-            console.error('Error fetching participants:', error);
+            const errMsg = (error && typeof error === 'object')
+                ? (error as any).message || (error as any).details || (error as any).hint || JSON.stringify(error)
+                : String(error);
+            console.error('Error fetching participants:', errMsg);
         } finally {
             setLoading(false);
         }
@@ -135,14 +149,14 @@ export default function AdminPage() {
     const generateParticipantId = () => {
         let maxCount = 0;
         participants.forEach(p => {
-            const match = p.id.match(/Ugadi2026-(\d+)/);
+            const match = p.participant_id?.match(/Splash2026-(\d+)/);
             if (match) {
                 const num = parseInt(match[1], 10);
                 if (num > maxCount) maxCount = num;
             }
         });
         const padded = (maxCount + 1).toString().padStart(4, '0');
-        return `Ugadi2026-${padded}`;
+        return `Splash2026-${padded}`;
     };
 
     const handleAddParticipant = async (e: React.FormEvent) => {
@@ -150,49 +164,38 @@ export default function AdminPage() {
         setIsSaving(true);
         try {
             const customId = generateParticipantId();
-            const { data, error } = await supabase
-                .from('participants')
-                .insert([
-                    {
-                        id: customId,
-                        name: newParticipant.name,
-                        email: newParticipant.email,
-                        register_number: newParticipant.registerNumber,
-                        year: newParticipant.year,
-                        department: newParticipant.department,
-                        section: newParticipant.section,
-                        game: newParticipant.game,
-                        event: newParticipant.event,
-                        status: 'registered'
-                    }
-                ])
-                .select();
-
+            const { error } = await supabase.from('participants').insert([{
+                participant_id: customId,
+                participant_name: newParticipant.name,
+                email: newParticipant.email,
+                mobile: newParticipant.mobile,
+                category: newParticipant.category,
+                cultural_interest: newParticipant.culturalInterest,
+                register_number: newParticipant.registerNumber,
+                year: newParticipant.year,
+                department: newParticipant.department,
+                section: newParticipant.section,
+                game: newParticipant.game,
+                event: "Splash 2026",
+                status: "registered",
+            }]);
             if (error) throw error;
-
-            if (data) {
-                const participant: Participant = {
-                    id: data[0].id,
-                    name: data[0].name,
-                    email: data[0].email,
-                    registerNumber: data[0].register_number,
-                    year: data[0].year,
-                    department: data[0].department,
-                    section: data[0].section,
-                    game: data[0].game,
-                    status: data[0].status,
-                    event: data[0].event,
-                    registrationDate: new Date(data[0].created_at).toLocaleDateString(),
-                    qrValue: `${baseUrl}/p/${data[0].id}`
-                };
-                setParticipants([participant, ...participants]);
-
-                // Note: Email dispatch removed as email is no longer part of the schema
-                // If text broadcast is required, an SMS API endpoint can be substituted here
-
-                setNewParticipant({ name: "", registerNumber: "", year: "", department: "", section: "", game: "", email: "", event: "Vishaka Event 2026" });
-                setShowAddModal(false);
+            // Send welcome email if email provided
+            if (newParticipant.email) {
+                await fetch('/api/send-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: newParticipant.email,
+                        name: newParticipant.name,
+                        event: "Splash 2026",
+                    }),
+                }).catch((e) => console.error('Email send error:', e));
             }
+            // Reset form
+            setNewParticipant({ name: "", registerNumber: "", year: "", department: "", section: "", game: "", email: "", mobile: "", event: "Splash 2026", category: "", culturalInterest: "" });
+            setShowAddModal(false);
+            fetchParticipants();
         } catch (error: any) {
             console.error('Error adding participant:', error);
             alert("Error adding participant: " + (error?.message || JSON.stringify(error)));
@@ -201,12 +204,12 @@ export default function AdminPage() {
         }
     };
 
-    const deleteParticipant = async (id: string) => {
-        if (!confirm("Confirm system deletion for: " + id)) return;
+    const deleteParticipant = async (participantId: string) => {
+        if (!confirm("Confirm system deletion for: " + participantId)) return;
         try {
-            const { error } = await supabase.from('participants').delete().eq('id', id);
+            const { error } = await supabase.from('participants').delete().eq('participant_id', participantId);
             if (error) throw error;
-            setParticipants(participants.filter((p) => p.id !== id));
+            setParticipants(participants.filter((p) => p.participant_id !== participantId));
         } catch (error) {
             alert("Deletion failed.");
         }
@@ -214,16 +217,16 @@ export default function AdminPage() {
 
     const handleResetDay = async () => {
         if (!confirm("This will reset all attendees' statuses back to 'registered' for a new attendance day. Are you sure?")) return;
-        
+
         setIsSaving(true);
         try {
             const { error } = await supabase
                 .from('participants')
                 .update({ status: 'registered' })
                 .neq('status', 'registered');
-            
+
             if (error) throw error;
-            
+
             alert("Attendance successfully reset for a new day.");
             fetchParticipants();
         } catch (error: any) {
@@ -244,9 +247,9 @@ export default function AdminPage() {
 
     const filteredParticipants = participants.filter(
         (p) =>
-            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.participant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             p.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.id.toLowerCase().includes(searchTerm.toLowerCase())
+            p.participant_id?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const downloadQR = (id: string, name: string) => {
@@ -261,8 +264,7 @@ export default function AdminPage() {
     };
 
     // ── CSV helpers ──────────────────────────────────────────────────────────
-    const REQUIRED_HEADERS = ["name", "register_number", "year", "department", "section", "game"];
-    // email is optional
+    const REQUIRED_HEADERS = ["name", "register_number"];
 
     const parseCsv = (text: string): CsvRow[] => {
         const lines = text.trim().split(/\r?\n/);
@@ -276,7 +278,7 @@ export default function AdminPage() {
         if (tabCount > commaCount && tabCount > semiCount) delimiter = "\t";
         else if (semiCount > commaCount && semiCount > tabCount) delimiter = ";";
 
-        const rawHeaders = headerLine.split(delimiter).map(h => 
+        const rawHeaders = headerLine.split(delimiter).map(h =>
             h.trim().toLowerCase().replace(/^["']|["']$/g, "").replace(/\s+/g, "_")
         );
         const rows: CsvRow[] = [];
@@ -287,7 +289,6 @@ export default function AdminPage() {
 
             const values: string[] = [];
             if (delimiter === ",") {
-                // handle quoted values for comma only
                 let cur = "";
                 let inQuotes = false;
                 for (const ch of line) {
@@ -300,31 +301,84 @@ export default function AdminPage() {
                 line.split(delimiter).forEach(v => values.push(v.trim().replace(/^["']|["']$/g, "")));
             }
 
-            const row: any = {};
-            rawHeaders.forEach((h, idx) => { 
+            const row: Record<string, string> = {};
+            let detectedEmail = "";
+            let detectedMobile = "";
+
+            rawHeaders.forEach((h, idx) => {
                 const val = values[idx] || "";
                 row[h] = val;
-                
-                // Also map common aliases to required headers
-                if (h === "id" || h === "reg_no" || h === "register_no" || h === "enrollment_number" || h === "roll_no") row["register_number"] = val;
-                if (h === "dept") row["department"] = val;
-                if (h === "sec") row["section"] = val;
-                if (h === "event_name" || h === "event") row["game"] = val;
+
+                // Map aliases to standard field names
+                if (["name", "participant_name", "student_name", "full_name", "identity", "student"].includes(h) || h.includes("student_name") || h.includes("participant_name")) {
+                    row["name"] = val;
+                }
+                if (["id", "reg_no", "regno", "reg_number", "register_no", "register_number", "enrollment_number", "roll_no", "rollno", "ht_no", "hallticket"].includes(h) || h.includes("register") || h.includes("reg_no") || h.includes("roll")) {
+                    row["register_number"] = val;
+                }
+                if (["year", "yr", "academic_year", "study_year"].includes(h) || h.includes("year")) {
+                    row["year"] = val;
+                }
+                if (["dept", "department", "branch"].includes(h) || h.includes("dept") || h.includes("branch")) {
+                    row["department"] = val;
+                }
+                if (["sec", "section", "class"].includes(h) || h.includes("section")) {
+                    row["section"] = val;
+                }
+                if (["category", "cat", "participant_category", "type"].includes(h) || h.includes("category")) {
+                    row["category"] = val;
+                }
+                if (["culturals", "cultural", "cultural_interest", "culturals_interest", "cultural_activity", "cultural_event"].includes(h) || h.includes("cultural")) {
+                    row["culturals"] = val;
+                }
+                if (["game", "game_name", "event", "event_name", "sport", "sports", "activity"].includes(h) || h.includes("game") || h.includes("sport")) {
+                    row["game"] = val;
+                }
+                if (["mobile", "phone", "phone_number", "mobile_number", "contact", "contact_number", "ph_no", "whatsapp", "cell"].includes(h) || h.includes("mobile") || h.includes("phone") || h.includes("contact")) {
+                    row["mobile"] = val;
+                }
+                if (["email", "mail", "gmail", "email_id", "mail_id", "gmail_id", "emailid", "mailid", "gmailid", "email_address", "e_mail", "google_mail"].includes(h) || h.includes("email") || h.includes("mail") || h.includes("gmail")) {
+                    row["email"] = val;
+                }
+
+                // Check cell value patterns as fallback
+                if (!detectedEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())) {
+                    detectedEmail = val.trim();
+                }
+                if (!detectedMobile && /^[6-9]\d{9}$/.test(val.replace(/[\s+-]/g, ""))) {
+                    detectedMobile = val.trim();
+                }
             });
+
+            const parsedName = row["name"] || row["participant_name"] || "";
+            const parsedReg = row["register_number"] || "";
+            const parsedEmail = row["email"] || detectedEmail || "";
+            const parsedMobile = row["mobile"] || detectedMobile || "";
+            let parsedCategory = row["category"] || "";
+            const parsedCulturals = row["culturals"] || row["cultural_interest"] || "";
+            const parsedGame = row["game"] || "";
+
+            // Auto-infer category if not given explicitly
+            if (!parsedCategory) {
+                if (parsedCulturals) parsedCategory = "Culturals";
+                else if (parsedGame) parsedCategory = "Games";
+            }
 
             const errors: string[] = [];
-            REQUIRED_HEADERS.forEach(rh => {
-                if (!row[rh]) errors.push(`Missing: ${rh}`);
-            });
+            if (!parsedName) errors.push("Missing: Name");
+            if (!parsedReg) errors.push("Missing: Register Number");
 
             rows.push({
-                name: row["name"] || "",
-                register_number: row["register_number"] || "",
+                name: parsedName,
+                register_number: parsedReg,
                 year: row["year"] || "",
                 department: row["department"] || "",
                 section: row["section"] || "",
-                game: row["game"] || row["game_name"] || row["event"] || "",
-                email: row["email"] || "",
+                category: parsedCategory,
+                culturals: parsedCulturals,
+                game: parsedGame,
+                email: parsedEmail,
+                mobile: parsedMobile,
                 _error: errors.length ? errors.join(", ") : undefined,
             });
         }
@@ -359,7 +413,7 @@ export default function AdminPage() {
     // Generate next ID based on current max + offset for batch imports
     const generateNextId = (currentMax: number) => {
         const padded = (currentMax + 1).toString().padStart(4, "0");
-        return `Ugadi2026-${padded}`;
+        return `Splash2026-${padded}`;
     };
 
     const handleBulkImport = async () => {
@@ -373,11 +427,11 @@ export default function AdminPage() {
         // Fetch current max id from DB
         const { data: allIds } = await supabase
             .from("participants")
-            .select("id");
+            .select("participant_id");
 
         let maxCount = 0;
-        (allIds || []).forEach((p: { id: string }) => {
-            const m = p.id.match(/Ugadi2026-(\d+)/);
+        (allIds || []).forEach((p: { participant_id: string }) => {
+            const m = p.participant_id.match(/Splash2026-(\d+)/);
             if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
         });
 
@@ -387,15 +441,18 @@ export default function AdminPage() {
             maxCount++;
             const customId = generateNextId(maxCount - 1);
             const { error } = await supabase.from("participants").insert([{
-                id: customId,
-                name: row.name,
+                participant_id: customId,
+                participant_name: row.name,
                 email: row.email,
+                mobile: row.mobile,
+                category: row.category,
+                cultural_interest: row.culturals,
                 register_number: row.register_number,
                 year: row.year,
                 department: row.department,
                 section: row.section,
                 game: row.game,
-                event: "Ugadi Event 2026",
+                event: "Splash 2026",
                 status: "registered",
             }]);
             if (error) errors.push(`Row ${i + 1} (${row.name}): ${error.message}`);
@@ -569,23 +626,23 @@ export default function AdminPage() {
                             {/* Mobile Card View */}
                             <div className="md:hidden divide-y divide-white/[0.05]">
                                 {filteredParticipants.map((p) => (
-                                    <div key={p.id} className="p-4 space-y-4 bg-white/[0.01]">
+                                    <div key={p.participant_id} className="p-4 space-y-4 bg-white/[0.01]">
                                         <div className="flex justify-between items-start">
                                             <span className="font-mono text-[9px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-2.5 py-1 rounded-md border border-amber-500/10">
-                                                {p.id}
+                                                {p.participant_id}
                                             </span>
                                             <div className="flex gap-2">
-                                                <button onClick={() => downloadQR(p.id, p.name)} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white/20">
+                                                <button onClick={() => downloadQR(p.participant_id, p.participant_name)} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white/20">
                                                     <Download size={14} />
                                                 </button>
-                                                <button onClick={() => deleteParticipant(p.id)} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white/20">
+                                                <button onClick={() => deleteParticipant(p.participant_id)} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white/20">
                                                     <Trash2 size={14} />
                                                 </button>
                                             </div>
                                         </div>
 
                                         <div onClick={() => setSelectedParticipant(p)}>
-                                            <div className="font-black text-xs text-white tracking-widest uppercase mb-1">{p.name}</div>
+                                            <div className="font-black text-xs text-white tracking-widest uppercase mb-1">{p.participant_name}</div>
                                             <div className="text-[8px] text-white/30 font-bold uppercase tracking-widest flex items-center gap-2">
                                                 <Building size={10} className="text-amber-500/50" /> {p.department} ({p.year})
                                             </div>
@@ -617,7 +674,7 @@ export default function AdminPage() {
                                     <tbody className="divide-y divide-white/[0.02]">
                                         {filteredParticipants.map((p, i) => (
                                             <motion.tr
-                                                key={p.id}
+                                                key={p.participant_id}
                                                 variants={fadin}
                                                 initial="hidden"
                                                 animate="visible"
@@ -626,11 +683,11 @@ export default function AdminPage() {
                                             >
                                                 <td className="px-10 py-8">
                                                     <span className="font-mono text-[11px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-3 py-1.5 rounded-lg border border-amber-500/10">
-                                                        {p.id}
+                                                        {p.participant_id}
                                                     </span>
                                                 </td>
                                                 <td className="px-10 py-8">
-                                                    <div className="font-black text-sm text-white tracking-widest uppercase mb-1">{p.name}</div>
+                                                    <div className="font-black text-sm text-white tracking-widest uppercase mb-1">{p.participant_name}</div>
                                                     <div className="text-[10px] text-white/30 font-bold uppercase tracking-[0.1em] flex items-center gap-2">
                                                         <Building size={10} className="text-amber-500/50" /> {p.registerNumber}
                                                     </div>
@@ -653,7 +710,7 @@ export default function AdminPage() {
                                                             onClick={() => setSelectedParticipant(p)}
                                                         >
                                                             <QRCodeCanvas
-                                                                id={`qr-${p.id}`}
+                                                                id={`qr-${p.participant_id}`}
                                                                 value={p.qrValue}
                                                                 size={56}
                                                                 level="H"
@@ -663,10 +720,10 @@ export default function AdminPage() {
                                                 </td>
                                                 <td className="px-10 py-8">
                                                     <div className="flex justify-end items-center gap-3">
-                                                        <button onClick={() => downloadQR(p.id, p.name)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-amber-500 hover:text-black transition-all rounded-xl text-white/20">
+                                                        <button onClick={() => downloadQR(p.participant_id, p.participant_name)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-amber-500 hover:text-black transition-all rounded-xl text-white/20">
                                                             <Download size={16} />
                                                         </button>
-                                                        <button onClick={() => deleteParticipant(p.id)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-red-500 transition-all rounded-xl text-white/20">
+                                                        <button onClick={() => deleteParticipant(p.participant_id)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-red-500 transition-all rounded-xl text-white/20">
                                                             <Trash2 size={16} />
                                                         </button>
                                                     </div>
@@ -698,7 +755,7 @@ export default function AdminPage() {
                                     <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Bulk Data Ingestion</p>
                                     <h2 className="text-2xl md:text-3xl font-black text-white leading-none uppercase tracking-tighter">Import CSV.</h2>
                                     <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest mt-2">
-                                        Expected columns: name, register_number, year, department, section, game
+                                        Expected columns: name, register_number, year, department, section, game, mobile, email
                                     </p>
                                 </div>
                                 <button onClick={resetCsvModal} className="w-11 h-11 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5 flex-shrink-0">
@@ -714,11 +771,10 @@ export default function AdminPage() {
                                         onDragLeave={() => setIsDragging(false)}
                                         onDrop={handleCsvDrop}
                                         onClick={() => fileInputRef.current?.click()}
-                                        className={`relative border-2 border-dashed rounded-[2rem] p-12 md:p-20 flex flex-col items-center justify-center text-center gap-6 cursor-pointer transition-all duration-300 ${
-                                            isDragging
-                                                ? "border-amber-500/60 bg-amber-500/5"
-                                                : "border-white/10 hover:border-amber-500/30 hover:bg-white/[0.01]"
-                                        }`}
+                                        className={`relative border-2 border-dashed rounded-[2rem] p-12 md:p-20 flex flex-col items-center justify-center text-center gap-6 cursor-pointer transition-all duration-300 ${isDragging
+                                            ? "border-amber-500/60 bg-amber-500/5"
+                                            : "border-white/10 hover:border-amber-500/30 hover:bg-white/[0.01]"
+                                            }`}
                                     >
                                         <input
                                             ref={fileInputRef}
@@ -727,9 +783,8 @@ export default function AdminPage() {
                                             className="hidden"
                                             onChange={(e) => { if (e.target.files?.[0]) handleCsvFile(e.target.files[0]); }}
                                         />
-                                        <div className={`w-20 h-20 rounded-[1.8rem] flex items-center justify-center transition-colors ${
-                                            isDragging ? "bg-amber-500/20 text-amber-400" : "bg-white/[0.04] text-white/20"
-                                        }`}>
+                                        <div className={`w-20 h-20 rounded-[1.8rem] flex items-center justify-center transition-colors ${isDragging ? "bg-amber-500/20 text-amber-400" : "bg-white/[0.04] text-white/20"
+                                            }`}>
                                             <Upload size={36} strokeWidth={1.5} />
                                         </div>
                                         <div>
@@ -756,7 +811,7 @@ export default function AdminPage() {
                                         </div>
                                         <button
                                             onClick={() => {
-                                                const template = "name,register_number,year,department,section,game,email\nJohn Doe,22CS001,2,CSE,A,Cricket,";
+                                                const template = "name,register_number,year,department,section,category,game,culturals,mobile,email\nJohn Doe,22CS001,2,CSE,A,Games,Cricket,,9876543210,john@example.com\nJane Doe,22CS002,2,CSE,B,Culturals,,Dance,9876543211,jane@example.com";
                                                 const blob = new Blob([template], { type: "text/csv" });
                                                 const url = URL.createObjectURL(blob);
                                                 const a = document.createElement("a");
@@ -806,8 +861,11 @@ export default function AdminPage() {
                                                         <th className="px-4 py-3">Year</th>
                                                         <th className="px-4 py-3">Dept</th>
                                                         <th className="px-4 py-3">Sec</th>
+                                                        <th className="px-4 py-3">Category</th>
                                                         <th className="px-4 py-3">Game</th>
+                                                        <th className="px-4 py-3">Culturals</th>
                                                         <th className="px-4 py-3">Email</th>
+                                                        <th className="px-4 py-3">Mobile</th>
                                                         <th className="px-4 py-3">Status</th>
                                                     </tr>
                                                 </thead>
@@ -820,8 +878,11 @@ export default function AdminPage() {
                                                             <td className="px-4 py-3 text-white/50">{row.year}</td>
                                                             <td className="px-4 py-3 text-white/50">{row.department}</td>
                                                             <td className="px-4 py-3 text-white/50">{row.section}</td>
+                                                            <td className="px-4 py-3 text-white/50">{row.category}</td>
                                                             <td className="px-4 py-3 text-white/50">{row.game}</td>
+                                                            <td className="px-4 py-3 text-white/50">{row.culturals}</td>
                                                             <td className="px-4 py-3 text-white/40">{row.email}</td>
+                                                            <td className="px-4 py-3 text-white/40">{row.mobile}</td>
                                                             <td className="px-4 py-3">
                                                                 {row._error
                                                                     ? <span className="text-red-400 flex items-center gap-1"><AlertTriangle size={10} /> Error</span>
@@ -932,40 +993,59 @@ export default function AdminPage() {
                             </div>
                             <div className="flex-1 overflow-y-auto p-8 md:p-14">
                                 <form onSubmit={handleAddParticipant} className="space-y-10">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Full Identity</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="NAME" value={newParticipant.name} onChange={(e) => setNewParticipant({ ...newParticipant, name: e.target.value })} />
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        <div className="space-y-4">
+                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Full Identity</label>
+                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="NAME" value={newParticipant.name} onChange={(e) => setNewParticipant({ ...newParticipant, name: e.target.value })} />
+                                        </div>
+                                        <div className="space-y-4">
+                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Register Number</label>
+                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="REGISTER NUMBER" value={newParticipant.registerNumber} onChange={(e) => setNewParticipant({ ...newParticipant, registerNumber: e.target.value })} />
+                                        </div>
+                                        <div className="space-y-4">
+                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Year</label>
+                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="YEAR" value={newParticipant.year} onChange={(e) => setNewParticipant({ ...newParticipant, year: e.target.value })} />
+                                        </div>
+                                        <div className="space-y-4">
+                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Department</label>
+                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="DEPARTMENT" value={newParticipant.department} onChange={(e) => setNewParticipant({ ...newParticipant, department: e.target.value })} />
+                                        </div>
+                                        <div className="space-y-4">
+                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Section</label>
+                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="SECTION" value={newParticipant.section} onChange={(e) => setNewParticipant({ ...newParticipant, section: e.target.value })} />
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Email (Optional)</label>
+                                            <input type="email" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="EMAIL" value={newParticipant.email} onChange={(e) => setNewParticipant({ ...newParticipant, email: e.target.value })} />
+                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em] mt-4">Mobile (Optional)</label>
+                                            <input type="tel" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="MOBILE" value={newParticipant.mobile} onChange={(e) => setNewParticipant({ ...newParticipant, mobile: e.target.value })} />
+                                        </div>
+                                        <div className="space-y-4">
+                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Category</label>
+                                            <select className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" value={newParticipant.category} onChange={(e) => setNewParticipant({ ...newParticipant, category: e.target.value })}>
+                                                <option value="Games">Games</option>
+                                                <option value="Culturals">Culturals</option>
+                                                <option value="Event & Dj Attendee">Event & Dj Attendee</option>
+                                            </select>
+                                        </div>
+                                        {newParticipant.category === "Games" && (
+                                            <div className="space-y-4">
+                                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Game</label>
+                                                <input className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="GAME" value={newParticipant.game} onChange={(e) => setNewParticipant({ ...newParticipant, game: e.target.value })} />
+                                            </div>
+                                        )}
+                                        {newParticipant.category === "Culturals" && (
+                                            <div className="space-y-4">
+                                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Cultural Interest</label>
+                                                <input className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="Cultural Interest" value={newParticipant.culturalInterest} onChange={(e) => setNewParticipant({ ...newParticipant, culturalInterest: e.target.value })} />
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Register Number</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="REGISTER NUMBER" value={newParticipant.registerNumber} onChange={(e) => setNewParticipant({ ...newParticipant, registerNumber: e.target.value })} />
-                                    </div>
-                                    <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Year</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="YEAR" value={newParticipant.year} onChange={(e) => setNewParticipant({ ...newParticipant, year: e.target.value })} />
-                                    </div>
-                                    <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Department</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="DEPARTMENT" value={newParticipant.department} onChange={(e) => setNewParticipant({ ...newParticipant, department: e.target.value })} />
-                                    </div>
-                                    <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Section</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="SECTION" value={newParticipant.section} onChange={(e) => setNewParticipant({ ...newParticipant, section: e.target.value })} />
-                                    </div>
-                                    <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Game</label>
-                                        <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="GAME" value={newParticipant.game} onChange={(e) => setNewParticipant({ ...newParticipant, game: e.target.value })} />
-                                    </div>
-                                    <div className="space-y-4">
-                                        <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Email (Optional)</label>
-                                        <input type="email" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="EMAIL" value={newParticipant.email} onChange={(e) => setNewParticipant({ ...newParticipant, email: e.target.value })} />
-                                    </div>
-                                </div>
-                                <button type="submit" disabled={isSaving} className="w-full bg-white text-black py-6 rounded-xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 transition-all flex items-center justify-center gap-4 shadow-3xl disabled:opacity-50">
-                                    {isSaving ? <Loader2 className="animate-spin" size={20} /> : <>FINALIZE ENTRANCE <ChevronRight size={18} strokeWidth={3} /></>}
-                                </button>
-                            </form>
+                                    <button type="submit" disabled={isSaving} className="w-full bg-white text-black py-6 rounded-xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 transition-all flex items-center justify-center gap-4 shadow-3xl disabled:opacity-50">
+                                        {isSaving ? <Loader2 className="animate-spin" size={20} /> : <>FINALIZE ENTRANCE <ChevronRight size={18} strokeWidth={3} /></>}
+                                    </button>
+                                </form>
                             </div>
                         </motion.div>
                     </div>
@@ -990,32 +1070,32 @@ export default function AdminPage() {
                                 </div>
 
                                 <div className="bg-[#f0f0f0] p-10 rounded-[2.5rem] mb-12 flex flex-col items-center justify-center border border-black/5 shadow-inner">
-                                <QRCodeCanvas id={`qr-big-${selectedParticipant.id}`} value={selectedParticipant.qrValue} size={240} level="H" />
-                                <div className="mt-10 space-y-2 flex flex-col items-center">
-                                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                                    <p className="text-black font-mono text-[11px] font-black tracking-widest bg-black/5 px-6 py-2 rounded-full uppercase">TAG: {selectedParticipant.id}</p>
+                                    <QRCodeCanvas id={`qr-big-${selectedParticipant.id}`} value={selectedParticipant.qrValue} size={240} level="H" />
+                                    <div className="mt-10 space-y-2 flex flex-col items-center">
+                                        <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                                        <p className="text-black font-mono text-[11px] font-black tracking-widest bg-black/5 px-6 py-2 rounded-full uppercase">TAG: {selectedParticipant.id}</p>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div className="grid grid-cols-2 gap-8 mb-16 px-2">
-                                <div>
-                                    <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Details</p>
-                                    <p className="text-black font-black text-xs tracking-widest uppercase">{selectedParticipant.department} - Yr {selectedParticipant.year} (Sec {selectedParticipant.section})</p>
+                                <div className="grid grid-cols-2 gap-8 mb-16 px-2">
+                                    <div>
+                                        <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Details</p>
+                                        <p className="text-black font-black text-xs tracking-widest uppercase">{selectedParticipant.department} - Yr {selectedParticipant.year} (Sec {selectedParticipant.section})</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Authorization</p>
+                                        <p className="font-black text-xs tracking-widest uppercase italic" style={{ color: getStatusColor(selectedParticipant.status) }}>
+                                            {selectedParticipant.status.replace('-', '_')}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="text-right">
-                                    <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Authorization</p>
-                                    <p className="font-black text-xs tracking-widest uppercase italic" style={{ color: getStatusColor(selectedParticipant.status) }}>
-                                        {selectedParticipant.status.replace('-', '_')}
-                                    </p>
-                                </div>
-                            </div>
 
-                            <button
-                                onClick={() => downloadQR(`qr-big-${selectedParticipant.id}`, selectedParticipant.id)}
-                                className="w-full bg-black text-white py-6 rounded-2xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 hover:text-black transition-all flex items-center justify-center gap-3 shadow-2xl"
-                            >
-                                <Download size={18} /> DOWNLOAD_AS_IMAGE
-                            </button>
+                                <button
+                                    onClick={() => downloadQR(`qr-big-${selectedParticipant.id}`, selectedParticipant.id)}
+                                    className="w-full bg-black text-white py-6 rounded-2xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 hover:text-black transition-all flex items-center justify-center gap-3 shadow-2xl"
+                                >
+                                    <Download size={18} /> DOWNLOAD_AS_IMAGE
+                                </button>
                             </div>
                         </motion.div>
                     </div>
