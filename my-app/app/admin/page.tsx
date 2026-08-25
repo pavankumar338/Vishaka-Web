@@ -204,7 +204,8 @@ export default function AdminPage() {
         }
     };
 
-    const deleteParticipant = async (participantId: string) => {
+    const deleteParticipant = async (participantId?: string) => {
+        if (!participantId) return;
         if (!confirm("Confirm system deletion for: " + participantId)) return;
         try {
             const { error } = await supabase.from('participants').delete().eq('participant_id', participantId);
@@ -252,13 +253,15 @@ export default function AdminPage() {
             p.participant_id?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const downloadQR = (id: string, name: string) => {
-        const canvas = document.getElementById(`qr-${id}`) as HTMLCanvasElement;
+    const downloadQR = (id?: string, name?: string) => {
+        const validId = id || "unknown";
+        const validName = name || "participant";
+        const canvas = document.getElementById(`qr-${validId}`) as HTMLCanvasElement;
         if (canvas) {
             const url = canvas.toDataURL("image/png");
             const link = document.createElement("a");
             link.href = url;
-            link.download = `QR-${name.replace(/\s+/g, "-")}.png`;
+            link.download = `QR-${validName.replace(/\s+/g, "-")}.png`;
             link.click();
         }
     };
