@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
-import { Plus, Trash2, Download, Search, Loader2, Building, Users, ShieldCheck, QrCode, Mail, ScanLine, LogOut, LayoutDashboard, ChevronRight, X, Upload, FileText, AlertTriangle, CheckCircle2, Table2, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Download, Search, Loader2, Building, Users, ShieldCheck, QrCode, Mail, ScanLine, LogOut, LayoutDashboard, ChevronRight, X, Upload, FileText, AlertTriangle, CheckCircle2, Table2, RefreshCw, Sparkles } from "lucide-react";
 import { Participant } from "@/lib/types";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
@@ -44,20 +44,6 @@ export default function AdminPage() {
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const [newParticipant, setNewParticipant] = useState({
-        name: "",
-        registerNumber: "",
-        year: "",
-        department: "",
-        section: "",
-        game: "",
-        email: "",
-        mobile: "",
-        category: "",
-        culturalInterest: "",
-        event: "Splash Event 2026",
-    });
-
     useEffect(() => {
         const isAdmin = localStorage.getItem("vishaka_admin_session");
         const role = localStorage.getItem("vishaka_role");
@@ -90,50 +76,67 @@ export default function AdminPage() {
 
     useEffect(() => {
         const channel = supabase
-            .channel('participants-changes')
+            .channel('dashboard-live-sync')
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'participants' },
-                (payload) => {
+                () => {
+                    fetchParticipants();
+                }
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'check_in_logs' },
+                () => {
                     fetchParticipants();
                 }
             )
             .subscribe();
 
+        // 5-second backup interval to ensure real-time accuracy across multiple scanner devices
+        const interval = setInterval(() => {
+            fetchParticipants();
+        }, 5000);
+
         return () => {
             supabase.removeChannel(channel);
+            clearInterval(interval);
         };
     }, []);
 
     async function fetchParticipants() {
         try {
-            setLoading(true);
-            const { data, error } = await supabase
-                .from('participants')
-                .select('*')
-                .order('created_at', { ascending: false });
+            const [pRes, logRes] = await Promise.all([
+                supabase.from('participants').select('*').order('created_at', { ascending: false }),
+                supabase.from('check_in_logs').select('participant_id, logged_at')
+            ]);
 
-            if (error) throw error;
+            if (pRes.error) throw pRes.error;
 
-            const mappedData: Participant[] = (data || []).map(item => ({
-                id: item.participant_id,
-                participant_id: item.participant_id,
-                name: item.participant_name,
-                participant_name: item.participant_name,
-                registerNumber: item.register_number || "",
-                year: item.year || "",
-                department: item.department || "",
-                section: item.section || "",
-                game: item.game || "",
-                email: item.email || "",
-                mobile: item.mobile || item.phone || "",
-                category: item.category || "",
-                culturalInterest: item.cultural_interest || item.culturals || "",
-                status: item.status,
-                event: item.event,
-                registrationDate: new Date(item.created_at).toLocaleDateString(),
-                qrValue: `${baseUrl}/p/${item.participant_id}`
-            }));
+            const checkedInSet = new Set((logRes.data || []).map(l => l.participant_id));
+
+            const mappedData: Participant[] = (pRes.data || []).map(item => {
+                const isCheckedIn = item.status === 'checked-in' || checkedInSet.has(item.participant_id) || checkedInSet.has(item.id);
+                return {
+                    id: item.participant_id,
+                    participant_id: item.participant_id,
+                    name: item.participant_name,
+                    participant_name: item.participant_name,
+                    registerNumber: item.register_number || "",
+                    year: item.year || "",
+                    department: item.department || "",
+                    section: item.section || "",
+                    game: item.game || "",
+                    email: item.email || "",
+                    mobile: item.mobile || item.phone || "",
+                    category: item.category || "",
+                    culturalInterest: item.cultural_interest || item.culturals || "",
+                    status: isCheckedIn ? 'checked-in' : (item.status || 'registered'),
+                    event: item.event,
+                    registrationDate: new Date(item.created_at).toLocaleDateString(),
+                    qrValue: `${baseUrl}/p/${item.participant_id}`
+                };
+            });
 
             setParticipants(mappedData);
         } catch (error) {
@@ -159,46 +162,32 @@ export default function AdminPage() {
         return `Splash2026-${padded}`;
     };
 
-    const handleAddParticipant = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleAddParticipant = async (data: any) => {
         setIsSaving(true);
         try {
             const customId = generateParticipantId();
             const { error } = await supabase.from('participants').insert([{
                 participant_id: customId,
-                participant_name: newParticipant.name,
-                email: newParticipant.email,
-                mobile: newParticipant.mobile,
-                category: newParticipant.category,
-                cultural_interest: newParticipant.culturalInterest,
-                register_number: newParticipant.registerNumber,
-                year: newParticipant.year,
-                department: newParticipant.department,
-                section: newParticipant.section,
-                game: newParticipant.game,
+                participant_name: data.name,
+                email: data.email || "",
+                mobile: data.mobile || "",
+                category: data.category || "Games",
+                cultural_interest: data.culturalInterest || "",
+                register_number: data.registerNumber,
+                year: data.year,
+                department: data.department,
+                section: data.section,
+                game: data.game || "",
                 event: "Splash 2026",
                 status: "registered",
             }]);
             if (error) throw error;
-            // Send welcome email if email provided
-            if (newParticipant.email) {
-                await fetch('/api/send-email', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        email: newParticipant.email,
-                        name: newParticipant.name,
-                        event: "Splash 2026",
-                    }),
-                }).catch((e) => console.error('Email send error:', e));
-            }
-            // Reset form
-            setNewParticipant({ name: "", registerNumber: "", year: "", department: "", section: "", game: "", email: "", mobile: "", event: "Splash 2026", category: "", culturalInterest: "" });
             setShowAddModal(false);
-            fetchParticipants();
+            await fetchParticipants();
         } catch (error: any) {
             console.error('Error adding participant:', error);
             alert("Error adding participant: " + (error?.message || JSON.stringify(error)));
+            throw error;
         } finally {
             setIsSaving(false);
         }
@@ -569,15 +558,15 @@ export default function AdminPage() {
                     </div>
 
                     <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl group-hover:bg-blue-500/10 transition-colors" />
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl group-hover:bg-amber-500/10 transition-colors" />
                         <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
                             <div className="flex items-center justify-between">
-                                <LogOut size={20} className="text-white/20 group-hover:text-blue-500 transition-colors" />
-                                <span className="text-[9px] font-black uppercase text-blue-500 tracking-[0.2em] bg-blue-500/10 px-2 py-1 rounded-md">Left</span>
+                                <Sparkles size={20} className="text-white/20 group-hover:text-amber-500 transition-colors" />
+                                <span className="text-[9px] font-black uppercase text-amber-400 tracking-[0.2em] bg-amber-500/10 px-2 py-1 rounded-md">Activities</span>
                             </div>
                             <div>
-                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.filter(p => p.status === 'checked-out').length}</h3>
-                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Checked Out</p>
+                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.filter(p => p.game || p.category === 'Games' || p.category === 'Culturals').length}</h3>
+                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Games & Culturals</p>
                             </div>
                         </div>
                     </div>
@@ -983,77 +972,11 @@ export default function AdminPage() {
             </AnimatePresence>
 
             {/* Modals & Overlays */}
-            <AnimatePresence>
-                {showAddModal && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-xl">
-                        <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] flex flex-col">
-                            <div className="p-8 md:p-14 border-b border-white/5 flex justify-between items-end flex-shrink-0">
-                                <div>
-                                    <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Initialize System Record</p>
-                                    <h2 className="text-3xl font-black text-white leading-none uppercase tracking-tighter">Registration.</h2>
-                                </div>
-                                <button onClick={() => setShowAddModal(false)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5 flex-shrink-0"><X size={24} /></button>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-8 md:p-14">
-                                <form onSubmit={handleAddParticipant} className="space-y-10">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div className="space-y-4">
-                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Full Identity</label>
-                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="NAME" value={newParticipant.name} onChange={(e) => setNewParticipant({ ...newParticipant, name: e.target.value })} />
-                                        </div>
-                                        <div className="space-y-4">
-                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Register Number</label>
-                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="REGISTER NUMBER" value={newParticipant.registerNumber} onChange={(e) => setNewParticipant({ ...newParticipant, registerNumber: e.target.value })} />
-                                        </div>
-                                        <div className="space-y-4">
-                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Year</label>
-                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="YEAR" value={newParticipant.year} onChange={(e) => setNewParticipant({ ...newParticipant, year: e.target.value })} />
-                                        </div>
-                                        <div className="space-y-4">
-                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Department</label>
-                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="DEPARTMENT" value={newParticipant.department} onChange={(e) => setNewParticipant({ ...newParticipant, department: e.target.value })} />
-                                        </div>
-                                        <div className="space-y-4">
-                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Section</label>
-                                            <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="SECTION" value={newParticipant.section} onChange={(e) => setNewParticipant({ ...newParticipant, section: e.target.value })} />
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Email (Optional)</label>
-                                            <input type="email" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="EMAIL" value={newParticipant.email} onChange={(e) => setNewParticipant({ ...newParticipant, email: e.target.value })} />
-                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em] mt-4">Mobile (Optional)</label>
-                                            <input type="tel" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="MOBILE" value={newParticipant.mobile} onChange={(e) => setNewParticipant({ ...newParticipant, mobile: e.target.value })} />
-                                        </div>
-                                        <div className="space-y-4">
-                                            <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Category</label>
-                                            <select className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" value={newParticipant.category} onChange={(e) => setNewParticipant({ ...newParticipant, category: e.target.value })}>
-                                                <option value="Games">Games</option>
-                                                <option value="Culturals">Culturals</option>
-                                                <option value="Event & Dj Attendee">Event & Dj Attendee</option>
-                                            </select>
-                                        </div>
-                                        {newParticipant.category === "Games" && (
-                                            <div className="space-y-4">
-                                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Game</label>
-                                                <input className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="GAME" value={newParticipant.game} onChange={(e) => setNewParticipant({ ...newParticipant, game: e.target.value })} />
-                                            </div>
-                                        )}
-                                        {newParticipant.category === "Culturals" && (
-                                            <div className="space-y-4">
-                                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Cultural Interest</label>
-                                                <input className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="Cultural Interest" value={newParticipant.culturalInterest} onChange={(e) => setNewParticipant({ ...newParticipant, culturalInterest: e.target.value })} />
-                                            </div>
-                                        )}
-                                    </div>
-                                    <button type="submit" disabled={isSaving} className="w-full bg-white text-black py-6 rounded-xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 transition-all flex items-center justify-center gap-4 shadow-3xl disabled:opacity-50">
-                                        {isSaving ? <Loader2 className="animate-spin" size={20} /> : <>FINALIZE ENTRANCE <ChevronRight size={18} strokeWidth={3} /></>}
-                                    </button>
-                                </form>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+            <AddParticipantModal
+                isOpen={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                onAdd={handleAddParticipant}
+            />
 
             {/* Big Identity View Overlay */}
             <AnimatePresence>
@@ -1105,6 +1028,126 @@ export default function AdminPage() {
                 )}
             </AnimatePresence>
 
+        </div>
+    );
+}
+
+interface AddParticipantModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onAdd: (data: any) => Promise<void>;
+}
+
+function AddParticipantModal({ isOpen, onClose, onAdd }: AddParticipantModalProps) {
+    const [formData, setFormData] = useState({
+        name: "",
+        registerNumber: "",
+        year: "",
+        department: "",
+        section: "",
+        game: "",
+        email: "",
+        mobile: "",
+        category: "Games",
+        culturalInterest: "",
+        event: "Splash 2026",
+    });
+    const [isSaving, setIsSaving] = useState(false);
+
+    if (!isOpen) return null;
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSaving(true);
+        try {
+            await onAdd(formData);
+            setFormData({
+                name: "",
+                registerNumber: "",
+                year: "",
+                department: "",
+                section: "",
+                game: "",
+                email: "",
+                mobile: "",
+                category: "Games",
+                culturalInterest: "",
+                event: "Splash 2026",
+            });
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-xl">
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] flex flex-col">
+                <div className="p-8 md:p-14 border-b border-white/5 flex justify-between items-end flex-shrink-0">
+                    <div>
+                        <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Initialize System Record</p>
+                        <h2 className="text-3xl font-black text-white leading-none uppercase tracking-tighter">Registration.</h2>
+                    </div>
+                    <button type="button" onClick={onClose} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5 flex-shrink-0"><X size={24} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-8 md:p-14">
+                    <form onSubmit={handleSubmit} className="space-y-10">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Full Identity</label>
+                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="NAME" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} />
+                            </div>
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Register Number</label>
+                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="REGISTER NUMBER" value={formData.registerNumber} onChange={(e) => setFormData(prev => ({ ...prev, registerNumber: e.target.value }))} />
+                            </div>
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Year</label>
+                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="YEAR" value={formData.year} onChange={(e) => setFormData(prev => ({ ...prev, year: e.target.value }))} />
+                            </div>
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Department</label>
+                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="DEPARTMENT" value={formData.department} onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))} />
+                            </div>
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Section</label>
+                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="SECTION" value={formData.section} onChange={(e) => setFormData(prev => ({ ...prev, section: e.target.value }))} />
+                            </div>
+
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Email (Optional)</label>
+                                <input type="email" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="EMAIL" value={formData.email} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} />
+                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em] mt-4">Mobile (Optional)</label>
+                                <input type="tel" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="MOBILE" value={formData.mobile} onChange={(e) => setFormData(prev => ({ ...prev, mobile: e.target.value }))} />
+                            </div>
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Category</label>
+                                <select className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" value={formData.category} onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}>
+                                    <option value="Games">Games</option>
+                                    <option value="Culturals">Culturals</option>
+                                    <option value="Event & Dj Attendee">Event & Dj Attendee</option>
+                                </select>
+                            </div>
+                            {formData.category === "Games" && (
+                                <div className="space-y-4">
+                                    <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Game</label>
+                                    <input className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="GAME" value={formData.game} onChange={(e) => setFormData(prev => ({ ...prev, game: e.target.value }))} />
+                                </div>
+                            )}
+                            {formData.category === "Culturals" && (
+                                <div className="space-y-4">
+                                    <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Cultural Interest</label>
+                                    <input className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="Cultural Interest" value={formData.culturalInterest} onChange={(e) => setFormData(prev => ({ ...prev, culturalInterest: e.target.value }))} />
+                                </div>
+                            )}
+                        </div>
+                        <button type="submit" disabled={isSaving} className="w-full bg-white text-black py-6 rounded-xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 transition-all flex items-center justify-center gap-4 shadow-3xl disabled:opacity-50">
+                            {isSaving ? <Loader2 className="animate-spin" size={20} /> : <>FINALIZE ENTRANCE <ChevronRight size={18} strokeWidth={3} /></>}
+                        </button>
+                    </form>
+                </div>
+            </motion.div>
         </div>
     );
 }

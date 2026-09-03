@@ -34,9 +34,18 @@ export default function ParticipantProfile() {
                 if (error && !data) throw error;
 
                 if (data) {
+                    const pId = data.participant_id || data.id;
+                    const { data: logData } = await supabase
+                        .from('check_in_logs')
+                        .select('id')
+                        .eq('participant_id', pId)
+                        .limit(1);
+
+                    const isCheckedIn = data.status === 'checked-in' || (logData && logData.length > 0);
+
                     setParticipant({
-                        id: data.participant_id || data.id,
-                        participant_id: data.participant_id || data.id,
+                        id: pId,
+                        participant_id: pId,
                         name: data.participant_name || data.name,
                         participant_name: data.participant_name || data.name,
                         registerNumber: data.register_number,
@@ -47,7 +56,7 @@ export default function ParticipantProfile() {
                         email: data.email,
                         category: data.category || "",
                         culturalInterest: data.cultural_interest || data.culturals || "",
-                        status: data.status,
+                        status: isCheckedIn ? 'checked-in' : (data.status || 'registered'),
                         event: data.event,
                         registrationDate: new Date(data.created_at || Date.now()).toLocaleDateString(),
                         qrValue: ""

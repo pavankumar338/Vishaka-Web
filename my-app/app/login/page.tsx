@@ -32,11 +32,11 @@ export default function AdminLogin() {
     setError("");
 
     setTimeout(() => {
-      if (role === "admin" && username.toLowerCase() === "admin" && password === "VishakaEvent@2026") {
+      if (role === "admin" && username.toLowerCase() === "admin" && password === "PavanR@1617") {
         localStorage.setItem("vishaka_admin_session", "true");
         localStorage.setItem("vishaka_role", "admin");
         router.push("/admin");
-      } else if (role === "volunteer" && username.toLowerCase() === "volunteer" && password === "Vi@2026") {
+      } else if (role === "volunteer" && username.toLowerCase() === "volunteer" && password === "SplashEvent@2026") {
         localStorage.setItem("vishaka_admin_session", "true");
         localStorage.setItem("vishaka_role", "volunteer");
         router.push("/admin/scan");
@@ -96,22 +96,20 @@ export default function AdminLogin() {
               <button
                 type="button"
                 onClick={() => { setRole("volunteer"); setError(""); }}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                  role === "volunteer"
-                    ? "bg-amber-500 text-black shadow-md shadow-amber-500/20 font-black"
-                    : "text-white/50 hover:text-white"
-                }`}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${role === "volunteer"
+                  ? "bg-amber-500 text-black shadow-md shadow-amber-500/20 font-black"
+                  : "text-white/50 hover:text-white"
+                  }`}
               >
                 <User size={15} /> Volunteer
               </button>
               <button
                 type="button"
                 onClick={() => { setRole("admin"); setError(""); }}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                  role === "admin"
-                    ? "bg-amber-500 text-black shadow-md shadow-amber-500/20 font-black"
-                    : "text-white/50 hover:text-white"
-                }`}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${role === "admin"
+                  ? "bg-amber-500 text-black shadow-md shadow-amber-500/20 font-black"
+                  : "text-white/50 hover:text-white"
+                  }`}
               >
                 <ShieldCheck size={15} /> Admin
               </button>

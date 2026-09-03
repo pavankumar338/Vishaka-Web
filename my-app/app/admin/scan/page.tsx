@@ -21,7 +21,6 @@ import Link from "next/link";
 import Image from "next/image";
 
 export default function QRScannerPage() {
-    const [scanMode, setScanMode] = useState<"check-in" | "check-out">("check-in");
     const [scanResult, setScanResult] = useState<string | null>(null);
     const [participant, setParticipant] = useState<Participant | null>(null);
     const [lastAction, setLastAction] = useState<any>(null);
@@ -35,8 +34,6 @@ export default function QRScannerPage() {
     const router = useRouter();
     const scannerRef = useRef<Html5Qrcode | null>(null);
     const isStarting = useRef(false);
-    // Refs to avoid stale closures inside the QR scanner callback
-    const scanModeRef = useRef<"check-in" | "check-out">("check-in");
     const scanResultRef = useRef<string | null>(null);
 
     const getTodayRange = () => {
@@ -86,11 +83,10 @@ export default function QRScannerPage() {
                 const parts = decodedText.split("/");
                 const id = parts[parts.length - 1];
 
-                // Use refs here to avoid stale closure — always read current mode/result
                 if (id && id !== scanResultRef.current) {
                     scanResultRef.current = id;
                     setScanResult(id);
-                    fetchParticipant(id, scanModeRef.current);
+                    fetchParticipant(id);
                 }
             };
 
@@ -183,7 +179,7 @@ export default function QRScannerPage() {
         };
     }, []);
 
-    const fetchParticipant = async (id: string, mode: "check-in" | "check-out") => {
+    const fetchParticipant = async (id: string) => {
         try {
             setLoading(true);
             setError(null);
@@ -220,21 +216,19 @@ export default function QRScannerPage() {
 
             const pId = data.participant_id || data.id;
 
-            // Step 3: Check if there's already a same-mode log for today to show "already done"
+            // Step 2: Check if there's already a check-in log for today
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            const targetLogTable = mode === "check-in" ? "check_in_logs" : "check_out_logs";
             let todayLog = null;
             try {
                 const { data } = await supabase
-                    .from(targetLogTable)
+                    .from("check_in_logs")
                     .select("*")
                     .eq("participant_id", pId)
                     .limit(5);
 
                 if (data && data.length > 0) {
-                    // Check if any log is from today
                     const logToday = data.find((l: any) => {
                         const t = new Date(l.logged_at || l.created_at || l.recorded_at || l.logged_time);
                         return t >= today;
@@ -249,7 +243,7 @@ export default function QRScannerPage() {
                 setLastAction(todayLog);
             }
 
-            // Step 4: Set participant state
+            // Step 3: Set participant state
             setParticipant({
                 id: pId,
                 participant_id: pId,
@@ -305,8 +299,7 @@ export default function QRScannerPage() {
             }
 
             const logTimestamp = new Date().toISOString();
-            const targetTable = scanMode === "check-in" ? "check_in_logs" : "check_out_logs";
-            const newStatus = scanMode === "check-in" ? "checked-in" : "checked-out";
+            const newStatus = "checked-in";
 
             // Generate UUID for log table in case it lacks a default generator
             const logId = typeof crypto !== "undefined" && crypto.randomUUID
@@ -317,7 +310,7 @@ export default function QRScannerPage() {
                     return v.toString(16);
                 });
 
-            // 1. Insert log entry
+            // 1. Insert check-in log entry
             let newLogItem: any = {
                 id: logId,
                 participant_id: participant.id,
@@ -326,7 +319,7 @@ export default function QRScannerPage() {
             };
 
             let logInsertRes = await supabase
-                .from(targetTable)
+                .from("check_in_logs")
                 .insert([{
                     id: logId,
                     participant_id: participant.id,
@@ -343,7 +336,7 @@ export default function QRScannerPage() {
             if (logInsertRes.error) {
                 // Fallback attempt with minimal fields
                 logInsertRes = await supabase
-                    .from(targetTable)
+                    .from("check_in_logs")
                     .insert([{
                         id: logId,
                         participant_id: participant.id,
@@ -355,7 +348,7 @@ export default function QRScannerPage() {
             if (logInsertRes.error) {
                 // Fallback attempt without 'id' in case id is auto-generated
                 logInsertRes = await supabase
-                    .from(targetTable)
+                    .from("check_in_logs")
                     .insert([{
                         participant_id: participant.id,
                         participant_name: participant.name,
@@ -369,14 +362,13 @@ export default function QRScannerPage() {
                 console.warn("Log table insertion warning:", logInsertRes.error);
             }
 
-            // 2. Update participant status (primary source of truth)
+            // 2. Update participant status to checked-in
             let updateRes = await supabase
                 .from("participants")
                 .update({ status: newStatus })
                 .eq("participant_id", participant.id);
 
             if (updateRes.error) {
-                // Fallback to updating with 'id' column
                 updateRes = await supabase
                     .from("participants")
                     .update({ status: newStatus })
@@ -430,10 +422,7 @@ export default function QRScannerPage() {
             <div className="fixed inset-0 pointer-events-none opacity-20 z-0">
                 <div className="absolute top-0 left-[20%] w-[1px] h-full bg-gradient-to-b from-transparent via-white/10 to-transparent" />
                 <div className="absolute top-0 right-[20%] w-[1px] h-full bg-gradient-to-b from-transparent via-white/10 to-transparent" />
-                <div
-                    className={`absolute top-0 left-0 w-full h-[30%] bg-gradient-to-b transition-colors duration-1000 ${scanMode === "check-in" ? "from-amber-500/5" : "from-blue-500/5"
-                        } to-transparent`}
-                />
+                <div className="absolute top-0 left-0 w-full h-[30%] bg-gradient-to-b from-amber-500/5 to-transparent" />
             </div>
 
             <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8 relative z-10 pt-20 md:pt-32 lg:pt-40">
@@ -464,7 +453,7 @@ export default function QRScannerPage() {
                                         Visual Entrance Control
                                     </p>
                                     <h1 className="text-xl md:text-4xl lg:text-5xl font-black text-white tracking-tighter uppercase leading-none italic">
-                                        Scann<span className="text-amber-500">er</span> Core.
+                                        Check-In<span className="text-amber-500"> Scanner</span>.
                                     </h1>
                                 </div>
                             </div>
@@ -485,35 +474,9 @@ export default function QRScannerPage() {
                         </div>
                     </div>
 
-                    <div className="flex bg-[#0a0a0a] p-1 md:p-2 rounded-[2rem] border border-white/5 backdrop-blur-3xl w-full lg:w-auto shadow-2xl">
-                        <button
-                            onClick={() => {
-                                scanModeRef.current = "check-in";
-                                setScanMode("check-in");
-                                resetScanner();
-                            }}
-                            className={`flex-1 lg:flex-none flex items-center justify-center gap-2 md:gap-4 px-4 md:px-10 py-3.5 md:py-5 rounded-[1.5rem] font-black text-[9px] md:text-[11px] uppercase tracking-[0.2em] transition-all duration-700 ${scanMode === "check-in"
-                                ? "bg-amber-500 text-black shadow-2xl shadow-amber-500/20 scale-[1.02]"
-                                : "text-white/20 hover:text-white/40"
-                                }`}
-                        >
-                            <LogIn className="w-4 h-4 md:w-[18px] md:h-[18px]" strokeWidth={3} />{" "}
-                            <span>CHECK_IN</span>
-                        </button>
-                        <button
-                            onClick={() => {
-                                scanModeRef.current = "check-out";
-                                setScanMode("check-out");
-                                resetScanner();
-                            }}
-                            className={`flex-1 lg:flex-none flex items-center justify-center gap-2 md:gap-4 px-4 md:px-10 py-3.5 md:py-5 rounded-[1.5rem] font-black text-[9px] md:text-[11px] uppercase tracking-[0.2em] transition-all duration-700 ${scanMode === "check-out"
-                                ? "bg-amber-500 text-black shadow-2xl shadow-amber-500/20 scale-[1.02]"
-                                : "text-white/20 hover:text-white/40"
-                                }`}
-                        >
-                            <LogOut className="w-4 h-4 md:w-[18px] md:h-[18px]" strokeWidth={3} />{" "}
-                            <span>CHECK_OUT</span>
-                        </button>
+                    <div className="flex items-center gap-3 bg-[#0a0a0a] px-6 py-4 rounded-[2rem] border border-white/10 backdrop-blur-3xl shadow-2xl">
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34d399]" />
+                        <span className="font-mono text-xs font-black tracking-[0.2em] text-white/80 uppercase">ATTENDANCE STATION ACTIVE</span>
                     </div>
                 </motion.header>
 
@@ -629,7 +592,7 @@ export default function QRScannerPage() {
                                     </div>
                                     <div className="w-px h-3 bg-white/10" />
                                     <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] text-white/30 whitespace-nowrap">
-                                        MODE: <span className="text-white">{scanMode}</span>
+                                        MODE: <span className="text-white font-bold">CHECK-IN</span>
                                     </span>
                                 </div>
 
@@ -726,17 +689,9 @@ export default function QRScannerPage() {
                                             <motion.div
                                                 initial={{ y: 20, opacity: 0 }}
                                                 animate={{ y: 0, opacity: 1 }}
-                                                className={`p-10 rounded-[2.5rem] border-2 border-dashed flex flex-col items-center justify-center text-center gap-6 ${scanMode === "check-in"
-                                                    ? "border-emerald-500/30 bg-emerald-500/5"
-                                                    : "border-blue-500/30 bg-blue-500/5"
-                                                    }`}
+                                                className="p-10 rounded-[2.5rem] border-2 border-dashed flex flex-col items-center justify-center text-center gap-6 border-emerald-500/30 bg-emerald-500/5"
                                             >
-                                                <div
-                                                    className={`w-16 h-16 rounded-full flex items-center justify-center text-black shadow-2xl ${scanMode === "check-in"
-                                                        ? "bg-emerald-500 shadow-emerald-500/20"
-                                                        : "bg-blue-500 shadow-blue-500/20"
-                                                        }`}
-                                                >
+                                                <div className="w-16 h-16 rounded-full flex items-center justify-center text-black shadow-2xl bg-emerald-500 shadow-emerald-500/20">
                                                     <CheckCircle2 size={32} strokeWidth={3} />
                                                 </div>
 
@@ -754,13 +709,8 @@ export default function QRScannerPage() {
                                                 </div>
 
                                                 <div>
-                                                    <p
-                                                        className={`font-black uppercase tracking-[0.4em] text-xs italic ${scanMode === "check-in" ? "text-emerald-500" : "text-blue-500"
-                                                            }`}
-                                                    >
-                                                        {scanMode === "check-in"
-                                                            ? "ENTRANCE_GRANTED_SUCCESS"
-                                                            : "EXIT_AUTHORIZATION_SUCCESS"}
+                                                    <p className="font-black uppercase tracking-[0.4em] text-xs italic text-emerald-500">
+                                                        ENTRANCE_GRANTED_SUCCESS
                                                     </p>
                                                     <p className="text-[7px] text-white/20 mt-3 font-mono uppercase tracking-[0.2em] leading-tight">
                                                         LOG: {new Date(lastAction.logged_at || lastAction.created_at || lastAction.recorded_at || Date.now()).toLocaleString()} // SIG:{" "}
@@ -778,7 +728,7 @@ export default function QRScannerPage() {
                                                     <Loader2 size={24} className="animate-spin" />
                                                 ) : (
                                                     <>
-                                                        {scanMode === "check-in" ? "FINALIZE ENTRANCE" : "FINALIZE EXIT"}{" "}
+                                                        FINALIZE ENTRANCE{" "}
                                                         <ChevronRight size={20} strokeWidth={3} />
                                                     </>
                                                 )}
@@ -889,22 +839,6 @@ export default function QRScannerPage() {
 
                     <button
                         onClick={() => {
-                            setScanMode(scanMode === "check-in" ? "check-out" : "check-in");
-                            resetScanner();
-                        }}
-                        className={`transition-colors flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full ${scanMode === "check-in"
-                            ? "bg-amber-500/10 text-amber-500"
-                            : "bg-blue-500/10 text-blue-500"
-                            }`}
-                        title="Toggle Check-in / Check-out Phase"
-                    >
-                        {scanMode === "check-in" ? <LogIn size={20} /> : <LogOut size={20} />}
-                    </button>
-
-                    <div className="w-px h-6 bg-white/10 flex-shrink-0" />
-
-                    <button
-                        onClick={() => {
                             localStorage.removeItem("vishaka_admin_session");
                             localStorage.removeItem("vishaka_role");
                             router.push("/login");
@@ -933,7 +867,7 @@ export default function QRScannerPage() {
                                     SYSTEM_UPDATE_SUCCESS
                                 </span>
                                 <span className="text-[12px] font-black text-white tracking-widest uppercase">
-                                    {scanMode === "check-in" ? "Check-in Recorded" : "Check-out Recorded"}
+                                    Check-in Recorded
                                 </span>
                             </div>
                         </div>
