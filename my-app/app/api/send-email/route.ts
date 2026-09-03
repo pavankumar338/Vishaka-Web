@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import path from 'path';
+import fs from 'fs';
 
 export async function POST(request: Request) {
     try {
@@ -15,6 +17,18 @@ export async function POST(request: Request) {
                 pass: process.env.SMTP_PASS,
             },
         });
+
+        const attachments: any[] = [];
+
+        // Attach logo with CID so it displays reliably in all email clients
+        const logoPath = path.join(process.cwd(), 'public', 'side-image.png');
+        if (fs.existsSync(logoPath)) {
+            attachments.push({
+                filename: 'side-image.png',
+                path: logoPath,
+                cid: 'vishaka_logo',
+            });
+        }
 
         const mailOptions: any = {
             from: `"Vishaka Events" <${process.env.SMTP_USER}>`,
@@ -35,12 +49,12 @@ export async function POST(request: Request) {
                 const pdfDoc = await PDFDocument.create();
                 const page = pdfDoc.addPage([400, 600]);
                 const { width, height } = page.getSize();
-                
+
                 const helveticaFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
                 const helveticaRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
                 // Draw header
-                page.drawText('Ugadi Utsav 2K26 - Entry Pass', {
+                page.drawText('Splash 2K26 - Entry Pass', {
                     x: 50,
                     y: height - 80,
                     size: 20,
@@ -74,7 +88,7 @@ export async function POST(request: Request) {
                     color: rgb(0.7, 0.4, 0.0),
                 });
 
-                page.drawText('- Games Start: 2:00 PM (18-03-2026)', {
+                page.drawText('- Games Start: 9:30 PM (04-09-2026)', {
                     x: 60,
                     y: height - 225,
                     size: 11,
@@ -82,7 +96,7 @@ export async function POST(request: Request) {
                     color: rgb(0.2, 0.2, 0.2),
                 });
 
-                page.drawText('- Event Starts: 9:00 AM (19-03-2026)', {
+                page.drawText('- Event Starts: 9:00 AM (05-09-2026)', {
                     x: 60,
                     y: height - 245,
                     size: 11,
@@ -101,7 +115,7 @@ export async function POST(request: Request) {
                 // Draw QR Code Image
                 const qrImage = await pdfDoc.embedPng(qrBuffer);
                 const qrDims = qrImage.scale(1.0);
-                
+
                 // Draw a border for QR code
                 page.drawRectangle({
                     x: (width - qrDims.width) / 2 - 5,
@@ -122,16 +136,18 @@ export async function POST(request: Request) {
                 const pdfBytes = await pdfDoc.save();
                 const pdfBuffer = Buffer.from(pdfBytes);
 
-                mailOptions.attachments = [
-                    {
-                        filename: `${participantId || 'Entry'}_Pass.pdf`,
-                        content: pdfBuffer,
-                        contentType: 'application/pdf',
-                    }
-                ];
+                attachments.push({
+                    filename: `${participantId || 'Entry'}_Pass.pdf`,
+                    content: pdfBuffer,
+                    contentType: 'application/pdf',
+                });
             } catch (pdfErr) {
                 console.error("Error generating PDF:", pdfErr);
             }
+        }
+
+        if (attachments.length > 0) {
+            mailOptions.attachments = attachments;
         }
 
         const info = await transporter.sendMail(mailOptions);

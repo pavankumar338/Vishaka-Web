@@ -113,33 +113,48 @@ export default function MailsPage() {
 
         for (const p of selectedParticipants) {
             try {
+                const activityHtml = p.game && p.culturalInterest
+                    ? `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game:</strong> ${p.game}</p><p style="margin: 8px 0; font-size: 15px;"><strong>Registered Cultural:</strong> ${p.culturalInterest}</p>`
+                    : (p.culturalInterest || p.category?.toLowerCase().includes('cultural'))
+                    ? `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Cultural:</strong> ${p.culturalInterest || p.game || 'N/A'}</p>`
+                    : `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game:</strong> ${p.game || 'N/A'}</p>`;
+
                 const response = await fetch('/api/send-email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         to: p.email,
-                        subject: `Confirmation of Registration – Ugadi Utsav 2K26 🎉`,
+                        subject: `Confirmation of Registration – Splash-2K26 🎉`,
                         qrData: defaultUrl + '/p/' + p.id,
                         participantName: p.name,
                         participantId: p.id,
                         html: `
                             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 30px; border: 1px solid #eaeaea; border-radius: 12px; background: #ffffff; color: #333333;">
-                                <h2 style="color: #d97706;">Confirmation of Registration – Ugadi Utsav 2K26 🎉</h2>
+                                <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 20px;">
+                                    <tr>
+                                        <td valign="middle" align="left">
+                                            <h2 style="color: #d97706; margin: 0; font-size: 22px; line-height: 1.3;">Confirmation of Registration – Splash-2K26 🎉</h2>
+                                        </td>
+                                        <td valign="middle" align="right" style="width: 75px; padding-left: 15px;">
+                                            <img src="cid:vishaka_logo" alt="Vishaka Logo" width="65" height="65" style="width: 65px; height: 65px; object-fit: contain; display: block;" />
+                                        </td>
+                                    </tr>
+                                </table>
                                 <p style="font-size: 16px;">Dear <strong>${p.name}</strong>,</p>
                                 <p style="font-size: 16px;">Greetings!</p>
-                                <p style="font-size: 16px; line-height: 1.5;">Thank you for registering for Ugadi Utsav 2K26. We are excited to have you as a participant in this celebration.</p>
+                                <p style="font-size: 16px; line-height: 1.5;">Thank you for registering for  Splash-2K26. We are excited to have you as a participant in this celebration.</p>
                                 
                                  <div style="background: #fffbeb; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #fde68a;">
                                     <h3 style="margin-top: 0; color: #b45309;">Registration Details:</h3>
                                     <p style="margin: 8px 0; font-size: 15px;"><strong>Name:</strong> ${p.name}</p>
                                     <p style="margin: 8px 0; font-size: 15px;"><strong>Participant ID:</strong> <span style="font-family: monospace; background: #fef3c7; padding: 2px 6px; border-radius: 4px;">${p.id}</span></p>
-                                    <p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game/Event:</strong> ${p.game || 'N/A'}</p>
+                                    ${activityHtml}
                                 </div>
                                 <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #bae6fd;">
                                     <h3 style="margin-top: 0; color: #0369a1;">Schedule & Important Notice:</h3>
-                                    <p style="margin: 8px 0; font-size: 15px;"><strong>🎮 Games Start:</strong> 2:00 PM on 18-03-2026 at Indoor Stadium</p>
-                                    <p style="margin: 8px 0; font-size: 15px;"><strong>📅 Main Event Starts:</strong> 9:00 AM on 19-03-2026 at K.S.Krishnan Auditorium</p>
-                                    <p style="margin: 15px 0 0 0; font-size: 15px; color: #ef4444; font-weight: bold;">⚠️ Notice:Without Partcipation in the games cannot get the Certificate.</p>
+                                    <p style="margin: 8px 0; font-size: 15px;"><strong>🎮 Games Start:</strong> 9:30 AM on 04-09-2026 at Indoor Stadium</p>
+                                    <p style="margin: 8px 0; font-size: 15px;"><strong>📅 Main Event Starts:</strong> 9:00 AM on 05-09-2026 at K.S.Krishnan Auditorium</p>
+                                    <p style="margin: 15px 0 0 0; font-size: 15px; color: #ef4444; font-weight: bold;">⚠️ Notice:Without Partcipation in the Games and Event cannot get the Certificate.</p>
                                 </div>
                                 
                                 <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
@@ -147,13 +162,13 @@ export default function MailsPage() {
                                     <p style="font-size: 14px; color: #475569; margin-top: 8px; margin-bottom: 0;">Please download and present the attached PDF for quick check-in at the venue.</p>
                                 </div>
                                 
-                                <p style="font-size: 15px; line-height: 1.5;">We look forward to your enthusiastic participation and hope you have a wonderful experience at Ugadi Utsav 2K26.</p>
+                                <p style="font-size: 15px; line-height: 1.5;">We look forward to your enthusiastic participation and hope you have a wonderful experience at Splash-2K26.</p>
                                 
                                 <p style="font-size: 15px; line-height: 1.5;">If you have any queries, feel free to contact the organizing team.</p>
                                 
                                 <br />
                                 <p style="font-size: 15px; margin-bottom: 0;">Best regards,</p>
-                                <p style="font-size: 16px; font-weight: bold; margin-top: 5px; color: #d97706;">Ugadi Utsav 2K26  Organized by Vishaka Club</p>
+                                <p style="font-size: 16px; font-weight: bold; margin-top: 5px; color: #d97706;">Splash-2K26  Organized by Vishaka Club</p>
                             </div>
                         `
                     }),
