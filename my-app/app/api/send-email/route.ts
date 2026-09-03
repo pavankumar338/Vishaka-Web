@@ -8,26 +8,48 @@ export async function POST(request: Request) {
     try {
         const { to, subject, html, qrData, participantName, participantId } = await request.json();
 
+        if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+            console.error('SMTP credentials missing in environment variables.');
+            return NextResponse.json(
+                { success: false, error: 'SMTP credentials (SMTP_USER / SMTP_PASS) not configured on server.' },
+                { status: 500 }
+            );
+        }
+
+        const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+        const smtpPort = Number(process.env.SMTP_PORT) || 465;
+
         const transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST,
-            port: Number(process.env.SMTP_PORT),
-            secure: process.env.SMTP_PORT === '465', // true for 465, false for other ports
+            host: smtpHost,
+            port: smtpPort,
+            secure: smtpPort === 465,
             auth: {
-                user: process.env.SMTP_USER,
-                pass: process.env.SMTP_PASS,
+                user: process.env.SMTP_USER.trim(),
+                pass: process.env.SMTP_PASS.replace(/\s+/g, ''),
             },
         });
 
         const attachments: any[] = [];
 
-        // Attach logo with CID so it displays reliably in all email clients
-        const logoPath = path.join(process.cwd(), 'public', 'side-image.png');
-        if (fs.existsSync(logoPath)) {
-            attachments.push({
-                filename: 'side-image.png',
-                path: logoPath,
-                cid: 'vishaka_logo',
-            });
+        // Safely load logo buffer for CID attachment
+        try {
+            const possiblePaths = [
+                path.join(process.cwd(), 'public', 'side-image.png'),
+                path.join(process.cwd(), 'my-app', 'public', 'side-image.png'),
+            ];
+            for (const p of possiblePaths) {
+                if (fs.existsSync(p)) {
+                    const logoBuffer = fs.readFileSync(p);
+                    attachments.push({
+                        filename: 'side-image.png',
+                        content: logoBuffer,
+                        cid: 'vishaka_logo',
+                    });
+                    break;
+                }
+            }
+        } catch (logoErr) {
+            console.warn('Could not load local logo for CID attachment:', logoErr);
         }
 
         const mailOptions: any = {

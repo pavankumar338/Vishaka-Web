@@ -105,6 +105,7 @@ export default function MailsPage() {
         const selectedParticipants = participants.filter(p => selectedIds.includes(p.id));
         let successCount = 0;
         let failCount = 0;
+        let lastErrorMessage = "";
 
         const windowUrl = window.location.origin;
         const defaultUrl = windowUrl.includes('localhost')
@@ -174,9 +175,17 @@ export default function MailsPage() {
                     }),
                 });
 
-                if (response.ok) successCount++;
-                else failCount++;
-            } catch (err) {
+                if (response.ok) {
+                    successCount++;
+                } else {
+                    const errData = await response.json().catch(() => ({}));
+                    lastErrorMessage = errData.error || `HTTP ${response.status}`;
+                    console.error("Failed email delivery to", p.email, errData);
+                    failCount++;
+                }
+            } catch (err: any) {
+                lastErrorMessage = err.message || "Network request failed";
+                console.error("Network error sending email to", p.email, err);
                 failCount++;
             }
         }
@@ -186,7 +195,10 @@ export default function MailsPage() {
             setStatus({ type: "success", message: `DISPATCH SUCCESS: Broadcast delivered to ${successCount} node(s).` });
             setSelectedIds([]);
         } else {
-            setStatus({ type: "warning", message: `SYSTEM ALERT: Sent: ${successCount} | Failed: ${failCount}` });
+            setStatus({ 
+                type: "warning", 
+                message: `SYSTEM ALERT: Sent: ${successCount} | Failed: ${failCount}${lastErrorMessage ? ` — Reason: ${lastErrorMessage}` : ''}` 
+            });
         }
     };
 
