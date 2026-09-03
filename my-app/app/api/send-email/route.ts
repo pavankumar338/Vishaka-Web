@@ -4,9 +4,41 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import path from 'path';
 import fs from 'fs';
 
+let transporter: nodemailer.Transporter | null = null;
+
+function getTransporter() {
+    if (!transporter) {
+        const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+        const smtpPort = Number(process.env.SMTP_PORT) || 465;
+
+        transporter = nodemailer.createTransport({
+            pool: true,
+            maxConnections: 3,
+            maxMessages: 100,
+            rateDelta: 1000,
+            rateLimit: 5,
+            host: smtpHost,
+            port: smtpPort,
+            secure: smtpPort === 465,
+            auth: {
+                user: (process.env.SMTP_USER || '').trim(),
+                pass: (process.env.SMTP_PASS || '').replace(/\s+/g, ''),
+            },
+        });
+    }
+    return transporter;
+}
+
 export async function POST(request: Request) {
     try {
         const { to, subject, html, qrData, participantName, participantId } = await request.json();
+
+        if (!to || !to.includes('@')) {
+            return NextResponse.json(
+                { success: false, error: 'Recipient email is invalid or missing.' },
+                { status: 400 }
+            );
+        }
 
         if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
             console.error('SMTP credentials missing in environment variables.');
@@ -16,18 +48,7 @@ export async function POST(request: Request) {
             );
         }
 
-        const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-        const smtpPort = Number(process.env.SMTP_PORT) || 465;
-
-        const transporter = nodemailer.createTransport({
-            host: smtpHost,
-            port: smtpPort,
-            secure: smtpPort === 465,
-            auth: {
-                user: process.env.SMTP_USER.trim(),
-                pass: process.env.SMTP_PASS.replace(/\s+/g, ''),
-            },
-        });
+        const mailTransporter = getTransporter();
 
         const attachments: any[] = [];
 
@@ -172,7 +193,7 @@ export async function POST(request: Request) {
             mailOptions.attachments = attachments;
         }
 
-        const info = await transporter.sendMail(mailOptions);
+        const info = await mailTransporter.sendMail(mailOptions);
         console.log('Email sent: %s', info.messageId);
 
         return NextResponse.json({ success: true, messageId: info.messageId });
