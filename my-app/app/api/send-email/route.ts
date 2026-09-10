@@ -97,7 +97,7 @@ export async function POST(request: Request) {
                 const helveticaRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
                 // Draw header
-                page.drawText('Splash 2K26 - Entry Pass', {
+                page.drawText('Vishaka 2K26 - Entry Pass', {
                     x: 50,
                     y: height - 80,
                     size: 20,

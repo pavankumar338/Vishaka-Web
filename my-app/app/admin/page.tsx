@@ -152,14 +152,14 @@ export default function AdminPage() {
     const generateParticipantId = () => {
         let maxCount = 0;
         participants.forEach(p => {
-            const match = p.participant_id?.match(/Splash2026-(\d+)/);
+            const match = p.participant_id?.match(/Vishaka2026-(\d+)/);
             if (match) {
                 const num = parseInt(match[1], 10);
                 if (num > maxCount) maxCount = num;
             }
         });
         const padded = (maxCount + 1).toString().padStart(4, '0');
-        return `Splash2026-${padded}`;
+        return `Vishaka2026-${padded}`;
     };
 
     const handleAddParticipant = async (data: any) => {
@@ -178,7 +178,7 @@ export default function AdminPage() {
                 department: data.department,
                 section: data.section,
                 game: data.game || "",
-                event: "Splash 2026",
+                event: "Vinayaka Chavithi 2026",
                 status: "registered",
             }]);
             if (error) throw error;
@@ -405,7 +405,7 @@ export default function AdminPage() {
     // Generate next ID based on current max + offset for batch imports
     const generateNextId = (currentMax: number) => {
         const padded = (currentMax + 1).toString().padStart(4, "0");
-        return `Splash2026-${padded}`;
+        return `Vishaka2026-${padded}`;
     };
 
     const handleBulkImport = async () => {
@@ -423,7 +423,7 @@ export default function AdminPage() {
 
         let maxCount = 0;
         (allIds || []).forEach((p: { participant_id: string }) => {
-            const m = p.participant_id.match(/Splash2026-(\d+)/);
+            const m = p.participant_id.match(/Vishaka2026-(\d+)/);
             if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
         });
 
@@ -444,7 +444,7 @@ export default function AdminPage() {
                 department: row.department,
                 section: row.section,
                 game: row.game,
-                event: "Splash 2026",
+                event: "Vinayaka Chavithi 2026",
                 status: "registered",
             }]);
             if (error) errors.push(`Row ${i + 1} (${row.name}): ${error.message}`);
@@ -1050,7 +1050,7 @@ function AddParticipantModal({ isOpen, onClose, onAdd }: AddParticipantModalProp
         mobile: "",
         category: "Games",
         culturalInterest: "",
-        event: "Splash 2026",
+        event: "Vinayaka Chavithi 2026",
     });
     const [isSaving, setIsSaving] = useState(false);
 
@@ -1072,7 +1072,7 @@ function AddParticipantModal({ isOpen, onClose, onAdd }: AddParticipantModalProp
                 mobile: "",
                 category: "Games",
                 culturalInterest: "",
-                event: "Splash 2026",
+                event: "Vinayaka Chavithi 2026",
             });
         } catch (err) {
             console.error(err);

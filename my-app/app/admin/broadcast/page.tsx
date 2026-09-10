@@ -158,9 +158,9 @@ export default function MailsPage() {
             const p = selectedParticipants[i];
 
             // Live progress update
-            setStatus({ 
-                type: "info", 
-                message: `DISPATCHING [${i + 1}/${selectedParticipants.length}]: Processing ${p.name}... (Sent: ${successCount} | Failed: ${failCount})` 
+            setStatus({
+                type: "info",
+                message: `DISPATCHING [${i + 1}/${selectedParticipants.length}]: Processing ${p.name}... (Sent: ${successCount} | Failed: ${failCount})`
             });
 
             if (!p.email || !p.email.includes('@')) {
@@ -173,15 +173,15 @@ export default function MailsPage() {
                 const activityHtml = p.game && p.culturalInterest
                     ? `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game:</strong> ${p.game}</p><p style="margin: 8px 0; font-size: 15px;"><strong>Registered Cultural:</strong> ${p.culturalInterest}</p>`
                     : (p.culturalInterest || p.category?.toLowerCase().includes('cultural'))
-                    ? `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Cultural:</strong> ${p.culturalInterest || p.game || 'N/A'}</p>`
-                    : `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game:</strong> ${p.game || 'N/A'}</p>`;
+                        ? `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Cultural:</strong> ${p.culturalInterest || p.game || 'N/A'}</p>`
+                        : `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game:</strong> ${p.game || 'N/A'}</p>`;
 
                 const response = await fetch('/api/send-email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         to: p.email.trim(),
-                        subject: `Confirmation of Registration – Splash-2K26 🎉`,
+                        subject: `Confirmation of Registration – Vinayaka Chavithi-2K26 🎉`,
                         qrData: defaultUrl + '/p/' + p.id,
                         participantName: p.name,
                         participantId: p.id,
@@ -190,7 +190,7 @@ export default function MailsPage() {
                                 <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 20px;">
                                     <tr>
                                         <td valign="middle" align="left">
-                                            <h2 style="color: #d97706; margin: 0; font-size: 22px; line-height: 1.3;">Confirmation of Registration – Splash-2K26 🎉</h2>
+                                            <h2 style="color: #d97706; margin: 0; font-size: 22px; line-height: 1.3;">Confirmation of Registration – Vinayaka Chavithi-2K26 🎉</h2>
                                         </td>
                                         <td valign="middle" align="right" style="width: 75px; padding-left: 15px;">
                                             <img src="cid:vishaka_logo" alt="Vishaka Logo" width="65" height="65" style="width: 65px; height: 65px; object-fit: contain; display: block;" />
@@ -199,7 +199,7 @@ export default function MailsPage() {
                                 </table>
                                 <p style="font-size: 16px;">Dear <strong>${p.name}</strong>,</p>
                                 <p style="font-size: 16px;">Greetings!</p>
-                                <p style="font-size: 16px; line-height: 1.5;">Thank you for registering for  Splash-2K26. We are excited to have you as a participant in this celebration.</p>
+                                <p style="font-size: 16px; line-height: 1.5;">Thank you for registering for  Vinayaka Chavithi -2K26. We are excited to have you as a participant in this celebration.</p>
                                 
                                  <div style="background: #fffbeb; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #fde68a;">
                                     <h3 style="margin-top: 0; color: #b45309;">Registration Details:</h3>
@@ -219,13 +219,13 @@ export default function MailsPage() {
                                     <p style="font-size: 14px; color: #475569; margin-top: 8px; margin-bottom: 0;">Please download and present the attached PDF for quick check-in at the venue.</p>
                                 </div>
                                 
-                                <p style="font-size: 15px; line-height: 1.5;">We look forward to your enthusiastic participation and hope you have a wonderful experience at Splash-2K26.</p>
+                                <p style="font-size: 15px; line-height: 1.5;">We look forward to your enthusiastic participation and hope you have a wonderful experience at Vinayaka Chavithi-2K26.</p>
                                 
                                 <p style="font-size: 15px; line-height: 1.5;">If you have any queries, feel free to contact the organizing team.</p>
                                 
                                 <br />
                                 <p style="font-size: 15px; margin-bottom: 0;">Best regards,</p>
-                                <p style="font-size: 16px; font-weight: bold; margin-top: 5px; color: #d97706;">Splash-2K26  Organized by Vishaka Club</p>
+                                <p style="font-size: 16px; font-weight: bold; margin-top: 5px; color: #d97706;">Vinayaka Chavithi-2K26  Organized by Vishaka Club</p>
                             </div>
                         `
                     }),
@@ -282,9 +282,9 @@ export default function MailsPage() {
             setStatus({ type: "success", message: `DISPATCH SUCCESS: Broadcast delivered to ${successCount} node(s).` });
             setSelectedIds([]);
         } else {
-            setStatus({ 
-                type: "warning", 
-                message: `SYSTEM ALERT: Sent: ${successCount} | Failed: ${failCount}${lastErrorMessage ? ` — Reason: ${lastErrorMessage}` : ''}` 
+            setStatus({
+                type: "warning",
+                message: `SYSTEM ALERT: Sent: ${successCount} | Failed: ${failCount}${lastErrorMessage ? ` — Reason: ${lastErrorMessage}` : ''}`
             });
         }
     };
@@ -479,10 +479,10 @@ export default function MailsPage() {
                                             <div className="flex flex-wrap items-center gap-3">
                                                 <span className="font-black text-white text-sm tracking-widest uppercase">{p.name}</span>
                                                 <span className="text-[9px] bg-amber-500/5 border border-amber-500/10 px-3 py-1 rounded-lg text-amber-500 font-mono font-black tracking-widest">{p.id}</span>
-                                                
+
                                                 {/* Email Delivery Status Badge */}
                                                 {isSent ? (
-                                                    <span 
+                                                    <span
                                                         onClick={(e) => markAsSentManually(p.id, e)}
                                                         className="text-[9px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-0.5 rounded-lg font-black tracking-widest flex items-center gap-1.5 hover:border-red-500/30 hover:text-red-400 transition-colors"
                                                         title="Click to toggle sent status"
@@ -490,7 +490,7 @@ export default function MailsPage() {
                                                         <CheckCircle2 size={11} /> SENT
                                                     </span>
                                                 ) : (
-                                                    <span 
+                                                    <span
                                                         onClick={(e) => markAsSentManually(p.id, e)}
                                                         className="text-[9px] bg-white/5 border border-white/10 text-white/40 px-3 py-0.5 rounded-lg font-black tracking-widest hover:border-emerald-500/30 hover:text-emerald-400 transition-colors"
                                                         title="Click to mark as sent manually"
