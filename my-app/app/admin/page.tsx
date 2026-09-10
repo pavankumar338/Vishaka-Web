@@ -116,10 +116,21 @@ export default function AdminPage() {
             const checkedInSet = new Set((logRes.data || []).map(l => l.participant_id));
 
             const mappedData: Participant[] = (pRes.data || []).map(item => {
-                const isCheckedIn = item.status === 'checked-in' || checkedInSet.has(item.participant_id) || checkedInSet.has(item.id);
+                const rawId = item.participant_id || item.id || "";
+                const cleanId = rawId.replace(/splash/gi, "Vishaka");
+                const isCheckedIn = item.status === 'checked-in' || checkedInSet.has(rawId) || checkedInSet.has(cleanId) || checkedInSet.has(item.id);
+
+                // Seamlessly migrate legacy splash IDs in Supabase to Vishaka
+                if (item.participant_id && /splash/i.test(item.participant_id)) {
+                    supabase.from('participants').update({
+                        participant_id: cleanId,
+                        event: (item.event || '').replace(/splash/gi, 'Vishaka')
+                    }).eq('participant_id', item.participant_id).then();
+                }
+
                 return {
-                    id: item.participant_id,
-                    participant_id: item.participant_id,
+                    id: cleanId,
+                    participant_id: cleanId,
                     name: item.participant_name,
                     participant_name: item.participant_name,
                     registerNumber: item.register_number || "",
@@ -132,9 +143,9 @@ export default function AdminPage() {
                     category: item.category || "",
                     culturalInterest: item.cultural_interest || item.culturals || "",
                     status: isCheckedIn ? 'checked-in' : (item.status || 'registered'),
-                    event: item.event,
+                    event: (item.event || "Vishaka 2026").replace(/splash/gi, "Vishaka").replace(/Vinayaka Chavithi/gi, "Vishaka"),
                     registrationDate: new Date(item.created_at).toLocaleDateString(),
-                    qrValue: `${baseUrl}/p/${item.participant_id}`
+                    qrValue: `${baseUrl}/p/${cleanId}`
                 };
             });
 
@@ -152,7 +163,7 @@ export default function AdminPage() {
     const generateParticipantId = () => {
         let maxCount = 0;
         participants.forEach(p => {
-            const match = p.participant_id?.match(/Vishaka2026-(\d+)/);
+            const match = p.participant_id?.match(/(?:Vishaka|Splash)2026-(\d+)/i);
             if (match) {
                 const num = parseInt(match[1], 10);
                 if (num > maxCount) maxCount = num;
@@ -178,7 +189,7 @@ export default function AdminPage() {
                 department: data.department,
                 section: data.section,
                 game: data.game || "",
-                event: "Vinayaka Chavithi 2026",
+                event: "Vishaka 2026",
                 status: "registered",
             }]);
             if (error) throw error;
@@ -235,12 +246,22 @@ export default function AdminPage() {
         }
     };
 
-    const filteredParticipants = participants.filter(
-        (p) =>
-            p.participant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.participant_id?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredParticipants = participants
+        .map(p => {
+            const cleanId = (p.participant_id || p.id || "").replace(/splash/gi, "Vishaka");
+            return {
+                ...p,
+                id: cleanId,
+                participant_id: cleanId,
+                qrValue: p.qrValue ? p.qrValue.replace(/splash/gi, "Vishaka") : p.qrValue,
+            };
+        })
+        .filter(
+            (p) =>
+                p.participant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                p.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                p.participant_id?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
 
     const downloadQR = (id?: string, name?: string) => {
         const validId = id || "unknown";
@@ -423,7 +444,7 @@ export default function AdminPage() {
 
         let maxCount = 0;
         (allIds || []).forEach((p: { participant_id: string }) => {
-            const m = p.participant_id.match(/Vishaka2026-(\d+)/);
+            const m = p.participant_id?.match(/(?:Vishaka|Splash)2026-(\d+)/i);
             if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
         });
 
@@ -444,7 +465,7 @@ export default function AdminPage() {
                 department: row.department,
                 section: row.section,
                 game: row.game,
-                event: "Vinayaka Chavithi 2026",
+                event: "Vishaka 2026",
                 status: "registered",
             }]);
             if (error) errors.push(`Row ${i + 1} (${row.name}): ${error.message}`);
@@ -620,7 +641,7 @@ export default function AdminPage() {
                                 {filteredParticipants.map((p) => (
                                     <div key={p.participant_id} className="p-4 space-y-4 bg-white/[0.01]">
                                         <div className="flex justify-between items-start">
-                                            <span className="font-mono text-[9px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-2.5 py-1 rounded-md border border-amber-500/10">
+                                            <span className="font-mono text-[9px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-2.5 py-1 rounded-md border border-amber-500/10 whitespace-nowrap">
                                                 {p.participant_id}
                                             </span>
                                             <div className="flex gap-2">
@@ -674,7 +695,7 @@ export default function AdminPage() {
                                                 className="group hover:bg-white/[0.01] transition-colors"
                                             >
                                                 <td className="px-10 py-8">
-                                                    <span className="font-mono text-[11px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-3 py-1.5 rounded-lg border border-amber-500/10">
+                                                    <span className="font-mono text-[11px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-3 py-1.5 rounded-lg border border-amber-500/10 whitespace-nowrap">
                                                         {p.participant_id}
                                                     </span>
                                                 </td>
@@ -999,7 +1020,7 @@ export default function AdminPage() {
                                     <QRCodeCanvas id={`qr-big-${selectedParticipant.id}`} value={selectedParticipant.qrValue} size={240} level="H" />
                                     <div className="mt-10 space-y-2 flex flex-col items-center">
                                         <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                                        <p className="text-black font-mono text-[11px] font-black tracking-widest bg-black/5 px-6 py-2 rounded-full uppercase">TAG: {selectedParticipant.id}</p>
+                                        <p className="text-black font-mono text-[11px] font-black tracking-widest bg-black/5 px-6 py-2 rounded-full uppercase whitespace-nowrap">TAG: {(selectedParticipant.participant_id || selectedParticipant.id || "").replace(/splash/gi, "Vishaka")}</p>
                                     </div>
                                 </div>
 
@@ -1050,7 +1071,7 @@ function AddParticipantModal({ isOpen, onClose, onAdd }: AddParticipantModalProp
         mobile: "",
         category: "Games",
         culturalInterest: "",
-        event: "Vinayaka Chavithi 2026",
+        event: "Vishaka 2026",
     });
     const [isSaving, setIsSaving] = useState(false);
 
@@ -1072,7 +1093,7 @@ function AddParticipantModal({ isOpen, onClose, onAdd }: AddParticipantModalProp
                 mobile: "",
                 category: "Games",
                 culturalInterest: "",
-                event: "Vinayaka Chavithi 2026",
+                event: "Vishaka 2026",
             });
         } catch (err) {
             console.error(err);

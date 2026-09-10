@@ -16,17 +16,21 @@ export default function ParticipantProfile() {
     useEffect(() => {
         async function getParticipant() {
             try {
+                const cleanId = decodeURIComponent(String(id || '')).trim();
+                const splashVariant = cleanId.replace(/vishaka/gi, "Splash");
+                const vishakaVariant = cleanId.replace(/splash/gi, "Vishaka");
+
                 let { data, error } = await supabase
                     .from('participants')
                     .select('*')
-                    .eq('participant_id', id)
+                    .or(`participant_id.eq.${cleanId},participant_id.eq.${vishakaVariant},participant_id.eq.${splashVariant}`)
                     .maybeSingle();
 
                 if (!data && !error) {
                     const fallback = await supabase
                         .from('participants')
                         .select('*')
-                        .eq('id', id)
+                        .or(`id.eq.${cleanId},id.eq.${vishakaVariant},id.eq.${splashVariant}`)
                         .maybeSingle();
                     if (fallback.data) data = fallback.data;
                 }
@@ -34,11 +38,12 @@ export default function ParticipantProfile() {
                 if (error && !data) throw error;
 
                 if (data) {
-                    const pId = data.participant_id || data.id;
+                    const rawPid = data.participant_id || data.id || cleanId;
+                    const pId = rawPid.replace(/splash/gi, "Vishaka");
                     const { data: logData } = await supabase
                         .from('check_in_logs')
                         .select('id')
-                        .eq('participant_id', pId)
+                        .or(`participant_id.eq.${pId},participant_id.eq.${rawPid}`)
                         .limit(1);
 
                     const isCheckedIn = data.status === 'checked-in' || (logData && logData.length > 0);
@@ -57,7 +62,7 @@ export default function ParticipantProfile() {
                         category: data.category || "",
                         culturalInterest: data.cultural_interest || data.culturals || "",
                         status: isCheckedIn ? 'checked-in' : (data.status || 'registered'),
-                        event: data.event,
+                        event: (data.event || "Vishaka 2026").replace(/splash/gi, "Vishaka").replace(/Vinayaka Chavithi/gi, "Vishaka"),
                         registrationDate: new Date(data.created_at || Date.now()).toLocaleDateString(),
                         qrValue: ""
                     });
@@ -175,7 +180,7 @@ export default function ParticipantProfile() {
                                     <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em]">Identity_Node_ID</p>
                                     <ShieldCheck size={16} className="text-amber-500/50" />
                                 </div>
-                                <p className="text-lg md:text-2xl font-mono text-amber-500 font-black tracking-widest">{participant.id}</p>
+                                <p className="text-lg md:text-2xl font-mono text-amber-500 font-black tracking-widest whitespace-nowrap">{(participant.participant_id || participant.id || "").replace(/splash/gi, "Vishaka")}</p>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

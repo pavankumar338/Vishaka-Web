@@ -186,14 +186,16 @@ export default function QRScannerPage() {
             setParticipant(null);
             setLastAction(null);
 
-            // Clean id in case it contains URL encoding or path
+            // Clean and normalize id
             const cleanId = decodeURIComponent(id).trim();
+            const vishakaId = cleanId.replace(/splash/gi, "Vishaka");
+            const splashId = cleanId.replace(/vishaka/gi, "Splash");
 
-            // Step 1: Fetch participant (check both participant_id and id)
+            // Step 1: Fetch participant (check both participant_id and id with fallback variants)
             let { data, error: dbError } = await supabase
                 .from("participants")
                 .select("*")
-                .eq("participant_id", cleanId)
+                .or(`participant_id.eq.${cleanId},participant_id.eq.${vishakaId},participant_id.eq.${splashId}`)
                 .maybeSingle();
 
             if (!data && !dbError) {
@@ -201,7 +203,7 @@ export default function QRScannerPage() {
                 const fallback = await supabase
                     .from("participants")
                     .select("*")
-                    .eq("id", cleanId)
+                    .or(`id.eq.${cleanId},id.eq.${vishakaId},id.eq.${splashId}`)
                     .maybeSingle();
                 if (fallback.data) {
                     data = fallback.data;
@@ -214,7 +216,20 @@ export default function QRScannerPage() {
                 return;
             }
 
-            const pId = data.participant_id || data.id;
+            const rawPid = data.participant_id || data.id || cleanId;
+            const pId = rawPid.replace(/splash/gi, "Vishaka");
+
+            // Seamlessly migrate legacy splash ID in Supabase if needed
+            if (data.participant_id && /splash/i.test(data.participant_id)) {
+                supabase
+                    .from("participants")
+                    .update({ 
+                        participant_id: pId,
+                        event: (data.event || "").replace(/splash/gi, "Vishaka")
+                    })
+                    .eq("participant_id", data.participant_id)
+                    .then();
+            }
 
             // Step 2: Check if there's already a check-in log for today
             const today = new Date();
@@ -222,14 +237,14 @@ export default function QRScannerPage() {
 
             let todayLog = null;
             try {
-                const { data } = await supabase
+                const { data: logList } = await supabase
                     .from("check_in_logs")
                     .select("*")
-                    .eq("participant_id", pId)
+                    .or(`participant_id.eq.${pId},participant_id.eq.${rawPid}`)
                     .limit(5);
 
-                if (data && data.length > 0) {
-                    const logToday = data.find((l: any) => {
+                if (logList && logList.length > 0) {
+                    const logToday = logList.find((l: any) => {
                         const t = new Date(l.logged_at || l.created_at || l.recorded_at || l.logged_time);
                         return t >= today;
                     });
@@ -243,7 +258,7 @@ export default function QRScannerPage() {
                 setLastAction(todayLog);
             }
 
-            // Step 3: Set participant state
+            // Step 3: Set participant state (guaranteed Vishaka ID)
             setParticipant({
                 id: pId,
                 participant_id: pId,
@@ -256,7 +271,7 @@ export default function QRScannerPage() {
                 category: data.category || "",
                 culturalInterest: data.cultural_interest || data.culturals || "",
                 status: data.status,
-                event: data.event || "N/A",
+                event: (data.event || "Vishaka 2026").replace(/splash/gi, "Vishaka"),
                 game: data.game || "",
                 email: data.email || "",
                 registrationDate: new Date(data.created_at || Date.now()).toLocaleDateString(),
@@ -279,17 +294,18 @@ export default function QRScannerPage() {
             setError(null);
 
             // Re-fetch current participant status from DB before writing
+            const splashVariant = participant.id.replace(/vishaka/gi, "Splash");
             let { data: current, error: fetchErr } = await supabase
                 .from("participants")
                 .select("status")
-                .eq("participant_id", participant.id)
+                .or(`participant_id.eq.${participant.id},participant_id.eq.${splashVariant}`)
                 .maybeSingle();
 
             if (!current && !fetchErr) {
                 const fallback = await supabase
                     .from("participants")
                     .select("status")
-                    .eq("id", participant.id)
+                    .or(`id.eq.${participant.id},id.eq.${splashVariant}`)
                     .maybeSingle();
                 if (fallback.data) current = fallback.data;
             }
@@ -362,11 +378,18 @@ export default function QRScannerPage() {
                 console.warn("Log table insertion warning:", logInsertRes.error);
             }
 
-            // 2. Update participant status to checked-in
+            // 2. Update participant status to checked-in and migrate to Vishaka ID
             let updateRes = await supabase
                 .from("participants")
-                .update({ status: newStatus })
-                .eq("participant_id", participant.id);
+                .update({ status: newStatus, participant_id: participant.id })
+                .or(`participant_id.eq.${participant.id},participant_id.eq.${splashVariant}`);
+
+            if (updateRes.error) {
+                updateRes = await supabase
+                    .from("participants")
+                    .update({ status: newStatus, participant_id: participant.id })
+                    .eq("participant_id", participant.id);
+            }
 
             if (updateRes.error) {
                 updateRes = await supabase
@@ -631,8 +654,8 @@ export default function QRScannerPage() {
                                             <span className="bg-amber-500/5 border border-amber-500/20 text-amber-500 px-4 py-1.5 rounded-full text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] italic">
                                                 FULL_IDENTITY
                                             </span>
-                                            <span className="text-[9px] md:text-[10px] font-mono text-white/20 font-bold uppercase tracking-widest">
-                                                {participant.id}
+                                            <span className="text-[9px] md:text-[10px] font-mono text-white/20 font-bold uppercase tracking-widest whitespace-nowrap">
+                                                {(participant.participant_id || participant.id || "").replace(/splash/gi, "Vishaka")}
                                             </span>
                                         </div>
 

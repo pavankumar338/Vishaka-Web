@@ -54,25 +54,29 @@ export default function MailsPage() {
 
             if (error) throw error;
 
-            const mappedData: Participant[] = (data || []).map(item => ({
-                id: item.participant_id,
-                participant_id: item.participant_id,
-                name: item.participant_name,
-                participant_name: item.participant_name,
-                registerNumber: item.register_number || "",
-                year: item.year || "",
-                department: item.department || "",
-                section: item.section || "",
-                game: item.game || "",
-                email: item.email || "",
-                mobile: item.mobile || item.phone || "",
-                category: item.category || "",
-                culturalInterest: item.cultural_interest || item.culturals || "",
-                status: item.status,
-                event: item.event,
-                registrationDate: new Date(item.created_at).toLocaleDateString(),
-                qrValue: ""
-            }));
+            const mappedData: Participant[] = (data || []).map(item => {
+                const rawId = item.participant_id || item.id || "";
+                const cleanId = rawId.replace(/splash/gi, "Vishaka");
+                return {
+                    id: cleanId,
+                    participant_id: cleanId,
+                    name: item.participant_name,
+                    participant_name: item.participant_name,
+                    registerNumber: item.register_number || "",
+                    year: item.year || "",
+                    department: item.department || "",
+                    section: item.section || "",
+                    game: item.game || "",
+                    email: item.email || "",
+                    mobile: item.mobile || item.phone || "",
+                    category: item.category || "",
+                    culturalInterest: item.cultural_interest || item.culturals || "",
+                    status: item.status,
+                    event: (item.event || "Vishaka 2026").replace(/splash/gi, "Vishaka").replace(/Vinayaka Chavithi/gi, "Vishaka"),
+                    registrationDate: new Date(item.created_at).toLocaleDateString(),
+                    qrValue: ""
+                };
+            });
 
             setParticipants(mappedData);
         } catch (error) {
@@ -89,7 +93,7 @@ export default function MailsPage() {
     };
 
     const selectAll = () => {
-        if (selectedIds.length === filteredParticipants.length && filteredParticipants.length > 0) {
+        if (selectedIds.length === filteredParticipants.length) {
             setSelectedIds([]);
         } else {
             setSelectedIds(filteredParticipants.map(p => p.id));
@@ -199,7 +203,7 @@ export default function MailsPage() {
                                 </table>
                                 <p style="font-size: 16px;">Dear <strong>${p.name}</strong>,</p>
                                 <p style="font-size: 16px;">Greetings!</p>
-                                <p style="font-size: 16px; line-height: 1.5;">Thank you for registering for  Vinayaka Chavithi -2K26. We are excited to have you as a participant in this celebration.</p>
+                                <p style="font-size: 16px; line-height: 1.5;">Thank you for registering for  Vinayaka Chavithi-2K26. We are excited to have you as a participant in this celebration.</p>
                                 
                                  <div style="background: #fffbeb; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #fde68a;">
                                     <h3 style="margin-top: 0; color: #b45309;">Registration Details:</h3>
@@ -209,9 +213,8 @@ export default function MailsPage() {
                                 </div>
                                 <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #bae6fd;">
                                     <h3 style="margin-top: 0; color: #0369a1;">Schedule & Important Notice:</h3>
-                                    <p style="margin: 8px 0; font-size: 15px;"><strong>🎮 Games Start:</strong> 9:30 AM on 04-09-2026 at Indoor Stadium</p>
-                                    <p style="margin: 8px 0; font-size: 15px;"><strong>📅 Main Event Starts:</strong> 9:00 AM on 05-09-2026 at K.S.Krishnan Auditorium</p>
-                                    <p style="margin: 15px 0 0 0; font-size: 15px; color: #ef4444; font-weight: bold;">⚠️ Notice:Without Partcipation in the Games and Event cannot get the Certificate.</p>
+                                    <p style="margin: 8px 0; font-size: 15px;"><strong>📅 Main Event Starts:</strong> 04:00 PM on 11-09-2026 at K.S.Krishnan Auditorium</p>
+                                    <p style="margin: 15px 0 0 0; font-size: 15px; color: #ef4444; font-weight: bold;">⚠️ Notice:Without Partcipation in the Event you cannot get the Certificate.</p>
                                 </div>
                                 
                                 <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
