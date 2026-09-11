@@ -174,11 +174,7 @@ export default function MailsPage() {
             }
 
             try {
-                const activityHtml = p.game && p.culturalInterest
-                    ? `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game:</strong> ${p.game}</p><p style="margin: 8px 0; font-size: 15px;"><strong>Registered Cultural:</strong> ${p.culturalInterest}</p>`
-                    : (p.culturalInterest || p.category?.toLowerCase().includes('cultural'))
-                        ? `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Cultural:</strong> ${p.culturalInterest || p.game || 'N/A'}</p>`
-                        : `<p style="margin: 8px 0; font-size: 15px;"><strong>Registered Game:</strong> ${p.game || 'N/A'}</p>`;
+
 
                 const response = await fetch('/api/send-email', {
                     method: 'POST',

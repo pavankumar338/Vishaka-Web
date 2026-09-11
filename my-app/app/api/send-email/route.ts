@@ -131,15 +131,8 @@ export async function POST(request: Request) {
                     color: rgb(0.7, 0.4, 0.0),
                 });
 
-                page.drawText('- Games Start: 9:30 PM (04-09-2026)', {
-                    x: 60,
-                    y: height - 225,
-                    size: 11,
-                    font: helveticaRegular,
-                    color: rgb(0.2, 0.2, 0.2),
-                });
 
-                page.drawText('- Event Starts: 9:00 AM (05-09-2026)', {
+                page.drawText('- Event Starts: 04:00 PM (11-09-2026)', {
                     x: 60,
                     y: height - 245,
                     size: 11,
@@ -147,7 +140,7 @@ export async function POST(request: Request) {
                     color: rgb(0.2, 0.2, 0.2),
                 });
 
-                page.drawText('Notice: Participants should participate in the games.', {
+                page.drawText('Notice: Participants should participate in the Event.', {
                     x: 50,
                     y: height - 275,
                     size: 10,
