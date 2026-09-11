@@ -205,7 +205,6 @@ export default function MailsPage() {
                                     <h3 style="margin-top: 0; color: #b45309;">Registration Details:</h3>
                                     <p style="margin: 8px 0; font-size: 15px;"><strong>Name:</strong> ${p.name}</p>
                                     <p style="margin: 8px 0; font-size: 15px;"><strong>Participant ID:</strong> <span style="font-family: monospace; background: #fef3c7; padding: 2px 6px; border-radius: 4px;">${p.id}</span></p>
-                                    ${activityHtml}
                                 </div>
                                 <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #bae6fd;">
                                     <h3 style="margin-top: 0; color: #0369a1;">Schedule & Important Notice:</h3>
