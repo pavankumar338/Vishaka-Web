@@ -60,7 +60,7 @@ export const DEFAULT_CHECKIN_COLUMNS: SchemaColumn[] = [
  */
 export function sanitizeEventTableName(eventName: string): string {
   if (!eventName) return "event_default";
-
+  
   let slug = eventName
     .toLowerCase()
     .trim()
@@ -363,7 +363,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
         candidateTables.push(getEventTableNames(e.title));
       }
     }
-  } catch { }
+  } catch {}
 
   // Known fallback candidates
   candidateTables.push({ participantsTable: 'participants_ignite2k26', checkInTable: 'check_in_logs_ignite2k26' });
@@ -389,7 +389,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
             .eq('participant_id', item.participant_id || cleanId)
             .limit(1);
           if (logData && logData.length > 0) isCheckedIn = true;
-        } catch { }
+        } catch {}
 
         return {
           participant: item,
@@ -398,7 +398,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
           isCheckedIn,
         };
       }
-    } catch { }
+    } catch {}
   }
 
   // 3. Fallback to localStorage in browser
@@ -408,7 +408,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
         const key = localStorage.key(i);
         if (key && key.startsWith('local_participants_')) {
           const items = JSON.parse(localStorage.getItem(key) || '[]');
-          const match = items.find((p: any) =>
+          const match = items.find((p: any) => 
             p.participant_id === cleanId || p.participant_id === vishakaVariant || p.id === cleanId
           );
           if (match) {
@@ -421,7 +421,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
           }
         }
       }
-    } catch { }
+    } catch {}
   }
 
   return { participant: null, sourceTable: null, checkInTable: null, isCheckedIn: false };
