@@ -19,7 +19,6 @@ import {
     generateEventTablesSQL,
     provisionEventTables,
     checkTableExists,
-    sanitizeEventTableName 
     sanitizeEventTableName,
     insertParticipantsResiliently
 } from "@/lib/eventTables";
@@ -323,26 +322,21 @@ export default function EventCommandCenterPage() {
             let savedToSupabase = false;
 
             if (isDedicatedActive) {
-                const { error: dedErr } = await supabase.from(participantsTable).insert([insertPayload]);
-                if (!dedErr) {
-                    const res = await insertParticipantsResiliently(participantsTable, [insertPayload]);
-                    if (res.success) {
-                        savedToSupabase = true;
-                        setHasDedicatedTable(true);
-                    } else {
-                        console.error("Dedicated table insert error:", dedErr);
-                        console.error("Dedicated table insert error:", res.error);
-                    }
+                const res = await insertParticipantsResiliently(participantsTable, [insertPayload]);
+                if (res.success) {
+                    savedToSupabase = true;
+                    setHasDedicatedTable(true);
                 } else {
-                    // If unified table exists, try inserting
-                    const hasUnified = await checkTableExists('participants');
-                    if (hasUnified) {
-                        const { error: uniErr } = await supabase.from('participants').insert([insertPayload]);
-                        if (!uniErr) savedToSupabase = true;
-                        const res = await insertParticipantsResiliently('participants', [insertPayload]);
-                        if (res.success) savedToSupabase = true;
-                    }
+                    console.error("Dedicated table insert error:", res.error);
                 }
+            } else {
+                // If unified table exists, try inserting
+                const hasUnified = await checkTableExists('participants');
+                if (hasUnified) {
+                    const res = await insertParticipantsResiliently('participants', [insertPayload]);
+                    if (res.success) savedToSupabase = true;
+                }
+            }
 
                 // Always save to localStorage as a fail-safe so registration never drops
                 const localKey = `local_participants_${currentEvent?.id || 'default'}`;
@@ -472,8 +466,7 @@ export default function EventCommandCenterPage() {
             else if (semiCount > commaCount && semiCount > tabCount) delimiter = ";";
 
             const rawHeaders = headerLine.split(delimiter).map(h =>
-                h.trim().toLowerCase().replace(/^["']|["']$/g, "").replace(/\s+/g, "_")
-            h.trim().replace(/^["']|["']$/g, "")
+                h.trim().replace(/^["']|["']$/g, "")
             );
             const rows: CsvRow[] = [];
 
@@ -500,59 +493,43 @@ export default function EventCommandCenterPage() {
                 let detectedMobile = "";
 
                 rawHeaders.forEach((h, idx) => {
-                    const val = values[idx] || "";
-                    row[h] = val;
-                    if (["name", "participant_name", "student_name", "full_name"].some(k => h.includes(k))) {
-                        const val = (values[idx] || "").trim();
-                        const norm = h.toLowerCase().replace(/[^a-z0-9]/g, "");
+                    const val = (values[idx] || "").trim();
+                    const norm = h.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-                        // Register number / Roll number detection
-                        const isReg = ["reg", "regd", "regno", "regdno", "register", "registerno", "registernumber", "roll", "rollno", "hallticket", "htno", "pin", "studentid"].some(k => norm.includes(k)) || norm === "id";
-                        if (isReg && !norm.includes("email") && !norm.includes("mail") && !norm.includes("pay") && !norm.includes("trans")) {
-                            row["register_number"] = val;
-                        }
+                    // Register number / Roll number detection
+                    const isReg = ["reg", "regd", "regno", "regdno", "register", "registerno", "registernumber", "roll", "rollno", "hallticket", "htno", "pin", "studentid"].some(k => norm.includes(k)) || norm === "id";
+                    if (isReg && !norm.includes("email") && !norm.includes("mail") && !norm.includes("pay") && !norm.includes("trans")) {
+                        row["register_number"] = val;
+                    }
 
-                        // Name detection (avoid college_name, event_name, etc.)
-                        const isName = ["name", "studentname", "participantname", "fullname"].some(k => norm.includes(k)) || norm === "student" || norm === "participant";
-                        if (isName && !norm.includes("college") && !norm.includes("event") && !norm.includes("game")) {
-                            row["name"] = val;
-                        }
-                        if (["id", "reg_no", "regno", "register_no", "register_number", "roll_no"].some(k => h.includes(k))) {
-                            row["register_number"] = val;
+                    // Name detection (avoid college_name, event_name, etc.)
+                    const isName = ["name", "studentname", "participantname", "fullname"].some(k => norm.includes(k)) || norm === "student" || norm === "participant";
+                    if (isName && !norm.includes("college") && !norm.includes("event") && !norm.includes("game")) {
+                        row["name"] = val;
+                    }
 
-                            // Academic info
-                            if (norm.includes("year") || norm === "yr" || norm === "class") row["year"] = val;
-                            if (norm.includes("dept") || norm.includes("branch") || norm.includes("department") || norm.includes("stream")) row["department"] = val;
-                            if (norm.includes("sec") || norm.includes("section")) row["section"] = val;
+                    // Academic info
+                    if (norm.includes("year") || norm === "yr" || norm === "class") row["year"] = val;
+                    if (norm.includes("dept") || norm.includes("branch") || norm.includes("department") || norm.includes("stream")) row["department"] = val;
+                    if (norm.includes("sec") || norm.includes("section")) row["section"] = val;
 
-                            // Event info
-                            if (norm.includes("category")) row["category"] = val;
-                            if (norm.includes("cultur")) row["culturals"] = val;
-                            if (norm.includes("game") || norm.includes("sport") || norm.includes("esport")) row["game"] = val;
+                    // Event info
+                    if (norm.includes("category")) row["category"] = val;
+                    if (norm.includes("cultur")) row["culturals"] = val;
+                    if (norm.includes("game") || norm.includes("sport") || norm.includes("esport")) row["game"] = val;
 
-                            // Contact
-                            if (norm.includes("mobile") || norm.includes("phone") || norm.includes("contact") || norm.includes("whatsapp") || norm.includes("cell")) {
-                                row["mobile"] = val;
-                            }
-                            if (h.includes("year")) row["year"] = val;
-                            if (h.includes("dept") || h.includes("branch")) row["department"] = val;
-                            if (h.includes("sec") || h.includes("section")) row["section"] = val;
-                            if (h.includes("category")) row["category"] = val;
-                            if (h.includes("cultur")) row["culturals"] = val;
-                            if (h.includes("game") || h.includes("sport")) row["game"] = val;
-                            if (h.includes("mobile") || h.includes("phone")) row["mobile"] = val;
-                            if (h.includes("email") || h.includes("mail")) row["email"] = val;
-                            if (norm.includes("email") || norm.includes("mail")) row["email"] = val;
+                    // Contact
+                    if (norm.includes("mobile") || norm.includes("phone") || norm.includes("contact") || norm.includes("whatsapp") || norm.includes("cell")) {
+                        row["mobile"] = val;
+                    }
+                    if (norm.includes("email") || norm.includes("mail")) row["email"] = val;
 
-                            if (!detectedEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())) detectedEmail = val.trim();
-                            if (!detectedMobile && /^[6-9]\d{9}$/.test(val.replace(/[\s+-]/g, ""))) detectedMobile = val.trim();
-                            // Auto-detection based on content patterns if header was ambiguous
-                            if (!detectedEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) detectedEmail = val;
-                            if (!detectedMobile && /^[6-9]\d{9}$/.test(val.replace(/[\s+-]/g, ""))) detectedMobile = val;
-                        });
+                    // Auto-detection based on content patterns if header was ambiguous
+                    if (!detectedEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) detectedEmail = val;
+                    if (!detectedMobile && /^[6-9]\d{9}$/.test(val.replace(/[\s+-]/g, ""))) detectedMobile = val;
+                });
 
                 const parsedName = row["name"] || "";
-                const parsedReg = row["register_number"] || "";
                 let parsedReg = row["register_number"] || "";
                 // Auto fallback if register number header wasn't present in CSV
                 if (!parsedReg && parsedName) {
@@ -561,7 +538,6 @@ export default function EventCommandCenterPage() {
 
                 const errors: string[] = [];
                 if (!parsedName) errors.push("Missing: Name");
-                if (!parsedReg) errors.push("Missing: Register Number");
 
                 rows.push({
                     name: parsedName,
@@ -604,159 +580,130 @@ export default function EventCommandCenterPage() {
             if (file) handleCsvFile(file);
         }, []);
 
-        const handleBulkImport = async () => {
-            const validRows = csvRows.filter(r => !r._error);
-            if (!validRows.length || !currentEvent) return;
+    const handleBulkImport = async () => {
+        const validRows = csvRows.filter(r => !r._error);
+        if (!validRows.length || !currentEvent) return;
 
-            setCsvImporting(true);
-            setCsvProgress(0);
-            setCsvErrors([]);
+        setCsvImporting(true);
+        setCsvProgress(0);
+        setCsvErrors([]);
 
-            const prefix = currentEvent.code.replace(/[^A-Za-z0-9]/g, '');
-            const { participantsTable } = getEventTableNames(currentEvent.title);
-            const targetTable = (hasDedicatedTable && currentEvent.id !== 'all') ? participantsTable : 'participants';
+        const prefix = currentEvent.code.replace(/[^A-Za-z0-9]/g, '');
+        const { participantsTable } = getEventTableNames(currentEvent.title);
 
-            // Check if dedicated table is active
-            const isDedicated = await checkTableExists(participantsTable);
-            if (isDedicated) setHasDedicatedTable(true);
+        // Check if dedicated table is active
+        const isDedicated = await checkTableExists(participantsTable);
+        if (isDedicated) setHasDedicatedTable(true);
 
-            const targetTable = (isDedicated && currentEvent.id !== 'all') ? participantsTable : 'participants';
+        const targetTable = (isDedicated && currentEvent.id !== 'all') ? participantsTable : 'participants';
 
-            const { data: allIds } = await supabase.from(targetTable).select("participant_id");
+        const { data: allIds } = await supabase.from(targetTable).select("participant_id");
 
-            let maxCount = 0;
-            const countRegex = new RegExp(`(?:${prefix}|Vishaka|Splash)(?:2026)?[-_]?(\\d+)`, 'i');
+        let maxCount = 0;
+        const countRegex = new RegExp(`(?:${prefix}|Vishaka|Splash)(?:2026)?[-_]?(\\d+)`, 'i');
 
-            (allIds || []).forEach((p: { participant_id: string }) => {
-                const m = p.participant_id?.match(/(\d+)/);
-                const m = p.participant_id?.match(countRegex) || p.participant_id?.match(/(\d+)/);
-                if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
-            });
-            participants.forEach(p => {
-                const m = p.participant_id?.match(countRegex) || p.participant_id?.match(/(\d+)/);
-                if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
-            });
+        (allIds || []).forEach((p: { participant_id: string }) => {
+            const m = p.participant_id?.match(countRegex) || p.participant_id?.match(/(\d+)/);
+            if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
+        });
+        participants.forEach(p => {
+            const m = p.participant_id?.match(countRegex) || p.participant_id?.match(/(\d+)/);
+            if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
+        });
 
-            const batchSize = 25;
-            const newParticipantsForState: Participant[] = [];
-            const localPayloadsForStorage: any[] = [];
-            const errors: string[] = [];
-            for (let i = 0; i < validRows.length; i++) {
-                const row = validRows[i];
+        const batchSize = 25;
+        const newParticipantsForState: Participant[] = [];
+        const localPayloadsForStorage: any[] = [];
+        const errors: string[] = [];
+
+        for (let b = 0; b < validRows.length; b += batchSize) {
+            const batchRows = validRows.slice(b, b + batchSize);
+            const batchPayloads: any[] = [];
+
+            for (const row of batchRows) {
                 maxCount++;
                 const padded = maxCount.toString().padStart(4, "0");
                 const customId = `${prefix || "Vishaka"}2026-${padded}`;
 
-                const insertPayload = {
+                const payload = {
                     id: customId,
                     participant_id: customId,
                     participant_name: row.name,
-                    email: row.email,
-                    mobile: row.mobile,
-                    category: row.category,
-                    cultural_interest: row.culturals,
+                    email: row.email || null,
+                    mobile: row.mobile || null,
+                    category: row.category || "General",
+                    cultural_interest: row.culturals || null,
                     register_number: row.register_number,
-                    year: row.year,
-                    department: row.department,
-                    section: row.section,
-                    game: row.game,
+                    year: row.year || "1",
+                    department: row.department || "CSE",
+                    section: row.section || "A",
+                    game: row.game || null,
                     event: currentEvent.title,
                     status: "registered",
-                };
-                for (let b = 0; b < validRows.length; b += batchSize) {
-                    const batchRows = validRows.slice(b, b + batchSize);
-                    const batchPayloads: any[] = [];
-
-                    let { error } = await supabase.from(targetTable).insert([insertPayload]);
-                    if (error && targetTable !== 'participants') {
-                        const fb = await supabase.from('participants').insert([insertPayload]);
-                        error = fb.error;
-                        for (const row of batchRows) {
-                            maxCount++;
-                            const padded = maxCount.toString().padStart(4, "0");
-                            const customId = `${prefix || "Vishaka"}2026-${padded}`;
-
-                            const payload = {
-                                id: customId,
-                                participant_id: customId,
-                                participant_name: row.name,
-                                email: row.email || null,
-                                mobile: row.mobile || null,
-                                category: row.category || "General",
-                                cultural_interest: row.culturals || null,
-                                register_number: row.register_number,
-                                year: row.year || "1",
-                                department: row.department || "CSE",
-                                section: row.section || "A",
-                                game: row.game || null,
-                                event: currentEvent.title,
-                                status: "registered",
-                                created_at: new Date().toISOString()
-                            };
-
-                            batchPayloads.push(payload);
-                            localPayloadsForStorage.push(payload);
-
-                            newParticipantsForState.push({
-                                id: customId,
-                                participant_id: customId,
-                                name: row.name,
-                                participant_name: row.name,
-                                registerNumber: row.register_number,
-                                year: row.year || "1",
-                                department: row.department || "CSE",
-                                section: row.section || "A",
-                                game: row.game || "",
-                                email: row.email || "",
-                                mobile: row.mobile || "",
-                                category: row.category || "General",
-                                culturalInterest: row.culturals || "",
-                                status: 'registered',
-                                event: currentEvent.title,
-                                registrationDate: new Date().toLocaleDateString(),
-                                qrValue: `${baseUrl}/p/${customId}`
-                            });
-                        }
-                        if (error) errors.push(`Row ${i + 1} (${row.name}): ${error.message}`);
-                        setCsvProgress(Math.round(((i + 1) / validRows.length) * 100));
-
-                        // Insert batch resiliently into target table
-                        let res = await insertParticipantsResiliently(targetTable, batchPayloads);
-                        if (!res.success && targetTable !== 'participants') {
-                            const hasUnified = await checkTableExists('participants');
-                            if (hasUnified) {
-                                res = await insertParticipantsResiliently('participants', batchPayloads);
-                            }
-                        }
-
-                        if (!res.success && res.error) {
-                            console.error("Batch insert error:", res.error);
-                            errors.push(`Batch ${Math.floor(b / batchSize) + 1} (${batchRows.length} rows): ${res.error.message || JSON.stringify(res.error)}`);
-                        }
-
-                        setCsvProgress(Math.min(100, Math.round(((b + batchRows.length) / validRows.length) * 100)));
-                    }
-
-                    // Always save to localStorage fail-safe
-                    const localKey = `local_participants_${currentEvent?.id || 'default'}`;
-                    try {
-                        const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-                        const combined = [...localPayloadsForStorage, ...existing];
-                        localStorage.setItem(localKey, JSON.stringify(combined));
-                    } catch (lsErr) {
-                        console.warn("localStorage bulk save warning:", lsErr);
-                    }
-
-                    // Optimistically add to UI state immediately
-                    setParticipants(prev => [...newParticipantsForState, ...prev]);
-
-                    setCsvErrors(errors);
-                    setCsvImporting(false);
-                    setCsvDone(true);
-                    fetchParticipants();
+                    created_at: new Date().toISOString()
                 };
 
-                const resetCsvModal = () => {
+                batchPayloads.push(payload);
+                localPayloadsForStorage.push(payload);
+
+                newParticipantsForState.push({
+                    id: customId,
+                    participant_id: customId,
+                    name: row.name,
+                    participant_name: row.name,
+                    registerNumber: row.register_number,
+                    year: row.year || "1",
+                    department: row.department || "CSE",
+                    section: row.section || "A",
+                    game: row.game || "",
+                    email: row.email || "",
+                    mobile: row.mobile || "",
+                    category: row.category || "General",
+                    culturalInterest: row.culturals || "",
+                    status: 'registered',
+                    event: currentEvent.title,
+                    registrationDate: new Date().toLocaleDateString(),
+                    qrValue: `${baseUrl}/p/${customId}`
+                });
+            }
+
+            // Insert batch resiliently into target table
+            let res = await insertParticipantsResiliently(targetTable, batchPayloads);
+            if (!res.success && targetTable !== 'participants') {
+                const hasUnified = await checkTableExists('participants');
+                if (hasUnified) {
+                    res = await insertParticipantsResiliently('participants', batchPayloads);
+                }
+            }
+
+            if (!res.success && res.error) {
+                console.error("Batch insert error:", res.error);
+                errors.push(`Batch ${Math.floor(b / batchSize) + 1} (${batchRows.length} rows): ${res.error.message || JSON.stringify(res.error)}`);
+            }
+
+            setCsvProgress(Math.min(100, Math.round(((b + batchRows.length) / validRows.length) * 100)));
+        }
+
+        // Always save to localStorage fail-safe
+        const localKey = `local_participants_${currentEvent?.id || 'default'}`;
+        try {
+            const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+            const combined = [...localPayloadsForStorage, ...existing];
+            localStorage.setItem(localKey, JSON.stringify(combined));
+        } catch (lsErr) {
+            console.warn("localStorage bulk save warning:", lsErr);
+        }
+
+        // Optimistically add to UI state immediately
+        setParticipants(prev => [...newParticipantsForState, ...prev]);
+
+        setCsvErrors(errors);
+        setCsvImporting(false);
+        setCsvDone(true);
+        fetchParticipants();
+    };
+
+    const resetCsvModal = () => {
                     setCsvRows([]);
                     setCsvFileName("");
                     setCsvProgress(0);
