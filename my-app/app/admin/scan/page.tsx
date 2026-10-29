@@ -17,6 +17,7 @@ import {
 import { Participant } from "@/lib/types";
 import { motion, AnimatePresence, Variants } from "framer-motion";
 import { supabase } from "@/lib/supabase";
+import { findParticipantAcrossTables, checkTableExists } from "@/lib/eventTables";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -30,6 +31,8 @@ export default function QRScannerPage() {
     const [isCameraStarted, setIsCameraStarted] = useState(false);
     const [showToast, setShowToast] = useState(false);
     const [isAdminRole, setIsAdminRole] = useState(false);
+    const [activeSourceTable, setActiveSourceTable] = useState<string | null>(null);
+    const [activeCheckInTable, setActiveCheckInTable] = useState<string | null>(null);
 
     const router = useRouter();
     const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -191,67 +194,43 @@ export default function QRScannerPage() {
             const vishakaId = cleanId.replace(/splash/gi, "Vishaka");
             const splashId = cleanId.replace(/vishaka/gi, "Splash");
 
-            // Step 1: Fetch participant (check both participant_id and id with fallback variants)
-            let { data, error: dbError } = await supabase
-                .from("participants")
-                .select("*")
-                .or(`participant_id.eq.${cleanId},participant_id.eq.${vishakaId},participant_id.eq.${splashId}`)
-                .maybeSingle();
+            const { participant: data, sourceTable, checkInTable, isCheckedIn } = await findParticipantAcrossTables(id);
 
-            if (!data && !dbError) {
-                // Fallback check on 'id' column if table has 'id'
-                const fallback = await supabase
-                    .from("participants")
-                    .select("*")
-                    .or(`id.eq.${cleanId},id.eq.${vishakaId},id.eq.${splashId}`)
-                    .maybeSingle();
-                if (fallback.data) {
-                    data = fallback.data;
-                }
-            }
-
-            if (dbError || !data) {
-                console.error("Participant fetch error / not found:", dbError, "ID searched:", cleanId);
+            if (!data) {
+                console.error("Participant not found across tables for ID:", id);
                 setError("IDENTITY NOT FOUND. INVALID SYSTEM TAG.");
                 return;
             }
 
+            setActiveSourceTable(sourceTable);
+            setActiveCheckInTable(checkInTable);
+
             const rawPid = data.participant_id || data.id || cleanId;
             const pId = rawPid.replace(/splash/gi, "Vishaka");
-
-            // Seamlessly migrate legacy splash ID in Supabase if needed
-            if (data.participant_id && /splash/i.test(data.participant_id)) {
-                supabase
-                    .from("participants")
-                    .update({ 
-                        participant_id: pId,
-                        event: (data.event || "").replace(/splash/gi, "Vishaka")
-                    })
-                    .eq("participant_id", data.participant_id)
-                    .then();
-            }
 
             // Step 2: Check if there's already a check-in log for today
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
             let todayLog = null;
-            try {
-                const { data: logList } = await supabase
-                    .from("check_in_logs")
-                    .select("*")
-                    .or(`participant_id.eq.${pId},participant_id.eq.${rawPid}`)
-                    .limit(5);
+            if (checkInTable) {
+                try {
+                    const { data: logList } = await supabase
+                        .from(checkInTable)
+                        .select("*")
+                        .or(`participant_id.eq.${pId},participant_id.eq.${rawPid}`)
+                        .limit(5);
 
-                if (logList && logList.length > 0) {
-                    const logToday = logList.find((l: any) => {
-                        const t = new Date(l.logged_at || l.created_at || l.recorded_at || l.logged_time);
-                        return t >= today;
-                    });
-                    if (logToday) todayLog = logToday;
+                    if (logList && logList.length > 0) {
+                        const logToday = logList.find((l: any) => {
+                            const t = new Date(l.logged_at || l.created_at || l.recorded_at || l.logged_time);
+                            return t >= today;
+                        });
+                        if (logToday) todayLog = logToday;
+                    }
+                } catch (logQueryErr) {
+                    console.warn("Could not query today's logs:", logQueryErr);
                 }
-            } catch (logQueryErr) {
-                console.warn("Could not query today's logs:", logQueryErr);
             }
 
             if (todayLog) {
@@ -334,72 +313,54 @@ export default function QRScannerPage() {
                 logged_at: logTimestamp,
             };
 
-            let logInsertRes = await supabase
-                .from("check_in_logs")
-                .insert([{
-                    id: logId,
-                    participant_id: participant.id,
-                    participant_name: participant.name,
-                    register_number: participant.registerNumber || "",
-                    year: participant.year || "",
-                    department: participant.department || "",
-                    section: participant.section || "",
-                    game: participant.game || "",
-                    logged_at: logTimestamp,
-                }])
-                .select();
+            const targetCheckInTable = activeCheckInTable || "check_in_logs";
+            const targetSourceTable = (activeSourceTable && activeSourceTable !== 'localStorage') ? activeSourceTable : "participants";
 
-            if (logInsertRes.error) {
-                // Fallback attempt with minimal fields
-                logInsertRes = await supabase
-                    .from("check_in_logs")
-                    .insert([{
-                        id: logId,
-                        participant_id: participant.id,
-                        participant_name: participant.name,
-                    }])
-                    .select();
+            const canLog = await checkTableExists(targetCheckInTable);
+            if (canLog) {
+                try {
+                    const logInsertRes = await supabase
+                        .from(targetCheckInTable)
+                        .insert([{
+                            participant_id: participant.id,
+                            logged_at: logTimestamp,
+                            scanner_id: 'admin_scanner',
+                            status: newStatus
+                        }])
+                        .select();
+                    if (logInsertRes.data && logInsertRes.data.length > 0) {
+                        newLogItem = logInsertRes.data[0];
+                    }
+                } catch (lErr) {
+                    console.warn("Log write warning:", lErr);
+                }
             }
 
-            if (logInsertRes.error) {
-                // Fallback attempt without 'id' in case id is auto-generated
-                logInsertRes = await supabase
-                    .from("check_in_logs")
-                    .insert([{
-                        participant_id: participant.id,
-                        participant_name: participant.name,
-                    }])
-                    .select();
-            }
-
-            if (logInsertRes.data && logInsertRes.data.length > 0) {
-                newLogItem = logInsertRes.data[0];
-            } else if (logInsertRes.error) {
-                console.warn("Log table insertion warning:", logInsertRes.error);
-            }
-
-            // 2. Update participant status to checked-in and migrate to Vishaka ID
-            let updateRes = await supabase
-                .from("participants")
-                .update({ status: newStatus, participant_id: participant.id })
-                .or(`participant_id.eq.${participant.id},participant_id.eq.${splashVariant}`);
-
-            if (updateRes.error) {
-                updateRes = await supabase
-                    .from("participants")
-                    .update({ status: newStatus, participant_id: participant.id })
-                    .eq("participant_id", participant.id);
-            }
-
-            if (updateRes.error) {
-                updateRes = await supabase
-                    .from("participants")
+            // Update participant status in DB if table exists
+            const canUpdateTable = await checkTableExists(targetSourceTable);
+            if (canUpdateTable) {
+                await supabase
+                    .from(targetSourceTable)
                     .update({ status: newStatus })
-                    .eq("id", participant.id);
+                    .or(`participant_id.eq.${participant.id},id.eq.${participant.id}`);
             }
 
-            if (updateRes.error) {
-                throw new Error(`STATUS_UPDATE_FAILED: ${updateRes.error.message}`);
+            // Update localStorage
+            if (typeof window !== 'undefined') {
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith('local_participants_')) {
+                            const items = JSON.parse(localStorage.getItem(key) || '[]');
+                            const updated = items.map((p: any) => 
+                                (p.participant_id === participant.id || p.id === participant.id) 
+                                    ? { ...p, status: newStatus } 
+                                    : p
+                            );
+                            localStorage.setItem(key, JSON.stringify(updated));
+                        }
+                    }
+                } catch (e) {}
             }
 
             // Update local participant state status

@@ -6,6 +6,7 @@ import { Participant } from "@/lib/types";
 import { User, Mail, School, Users, CheckCircle2, ShieldCheck, MapPin, Loader2, ArrowRight, Sparkles, Building, Zap } from "lucide-react";
 import { motion, Variants } from "framer-motion";
 import { supabase } from "@/lib/supabase";
+import { findParticipantAcrossTables } from "@/lib/eventTables";
 import Link from "next/link";
 
 export default function ParticipantProfile() {
@@ -17,48 +18,23 @@ export default function ParticipantProfile() {
         async function getParticipant() {
             try {
                 const cleanId = decodeURIComponent(String(id || '')).trim();
-                const splashVariant = cleanId.replace(/vishaka/gi, "Splash");
-                const vishakaVariant = cleanId.replace(/splash/gi, "Vishaka");
-
-                let { data, error } = await supabase
-                    .from('participants')
-                    .select('*')
-                    .or(`participant_id.eq.${cleanId},participant_id.eq.${vishakaVariant},participant_id.eq.${splashVariant}`)
-                    .maybeSingle();
-
-                if (!data && !error) {
-                    const fallback = await supabase
-                        .from('participants')
-                        .select('*')
-                        .or(`id.eq.${cleanId},id.eq.${vishakaVariant},id.eq.${splashVariant}`)
-                        .maybeSingle();
-                    if (fallback.data) data = fallback.data;
-                }
-
-                if (error && !data) throw error;
+                const { participant: data, isCheckedIn } = await findParticipantAcrossTables(cleanId);
 
                 if (data) {
                     const rawPid = data.participant_id || data.id || cleanId;
                     const pId = rawPid.replace(/splash/gi, "Vishaka");
-                    const { data: logData } = await supabase
-                        .from('check_in_logs')
-                        .select('id')
-                        .or(`participant_id.eq.${pId},participant_id.eq.${rawPid}`)
-                        .limit(1);
-
-                    const isCheckedIn = data.status === 'checked-in' || (logData && logData.length > 0);
 
                     setParticipant({
                         id: pId,
                         participant_id: pId,
-                        name: data.participant_name || data.name,
-                        participant_name: data.participant_name || data.name,
-                        registerNumber: data.register_number,
-                        year: data.year,
-                        department: data.department,
-                        section: data.section,
-                        game: data.game,
-                        email: data.email,
+                        name: data.participant_name || data.name || "Participant",
+                        participant_name: data.participant_name || data.name || "Participant",
+                        registerNumber: data.register_number || data.registerNumber || "",
+                        year: data.year || "",
+                        department: data.department || "",
+                        section: data.section || "",
+                        game: data.game || "",
+                        email: data.email || "",
                         category: data.category || "",
                         culturalInterest: data.cultural_interest || data.culturals || "",
                         status: isCheckedIn ? 'checked-in' : (data.status || 'registered'),
@@ -66,6 +42,8 @@ export default function ParticipantProfile() {
                         registrationDate: new Date(data.created_at || Date.now()).toLocaleDateString(),
                         qrValue: ""
                     });
+                } else {
+                    setParticipant(null);
                 }
             } catch (err) {
                 console.error("Error fetching participant:", err);
@@ -175,7 +153,7 @@ export default function ParticipantProfile() {
 
                         {/* Framework Data Grid */}
                         <div className="space-y-6">
-                             <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5 transition-all hover:bg-white/[0.04]">
+                            <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5 transition-all hover:bg-white/[0.04]">
                                 <div className="flex justify-between items-center mb-4">
                                     <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em]">Identity_Node_ID</p>
                                     <ShieldCheck size={16} className="text-amber-500/50" />
@@ -184,14 +162,14 @@ export default function ParticipantProfile() {
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                 <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
+                                <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
                                     <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Section</p>
                                     <div className="flex items-center gap-3">
                                         <Users size={18} className="text-white/20" />
                                         <p className="text-white font-black text-[10px] md:text-[11px] uppercase tracking-widest">SEC {participant.section}</p>
                                     </div>
                                 </div>
-                                 <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
+                                <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
                                     <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Current_Status</p>
                                     <div className="flex items-center gap-3">
                                         <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
@@ -200,7 +178,7 @@ export default function ParticipantProfile() {
                                 </div>
                             </div>
 
-                             <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
+                            <div className="bg-white/[0.02] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/5">
                                 <p className="text-[8px] md:text-[9px] font-black text-white/10 uppercase tracking-[0.5em] mb-4">Registration_Key</p>
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-white/20">
@@ -237,7 +215,7 @@ export default function ParticipantProfile() {
                 </motion.div>
             </div>
 
-    </div>
-  );
+        </div>
+    );
 }
 

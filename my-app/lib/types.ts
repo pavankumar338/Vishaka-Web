@@ -17,5 +17,21 @@ export interface Participant {
     registrationDate: string;
     qrValue: string;
 }
-
-
+export interface EventItem {
+    id: string;
+    title: string;
+    code: string;
+    category: 'Technical' | 'Cultural' | 'Sports' | 'Symposium' | 'Workshop' | 'Gaming' | 'General';
+    description: string;
+    venue: string;
+    date: string;
+    time?: string;
+    status: 'active' | 'upcoming' | 'completed' | 'draft';
+    maxCapacity?: number;
+    colorTheme?: string;
+    createdAt?: string;
+    bannerUrl?: string;
+    participantsTable?: string;
+    checkInTable?: string;
+    tablesCreated?: boolean;
+}

@@ -45,18 +45,28 @@ export default function Header() {
           </div>
         </Link>
 
-        <div className="flex items-center">
+        <div className="flex items-center gap-3">
           {isDashboard || isAdmin ? (
-            <button
-              onClick={handleLogout}
-              className="group relative flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 hover:text-white px-4 md:px-6 py-2 md:py-2.5 rounded-full text-xs font-black tracking-widest uppercase transition-all duration-300 hover:bg-red-500 shadow-lg active:scale-95 cursor-pointer"
-            >
-              <span>LOGOUT</span>
-              <LogOut size={14} strokeWidth={2.5} className="group-hover:scale-110 transition-transform" />
-            </button>
+            <>
+              {pathname !== "/admin" && (
+                <Link
+                  href="/admin"
+                  className="flex items-center gap-1.5 bg-white/5 border border-white/10 hover:border-amber-500/40 text-white/70 hover:text-white px-3.5 md:px-5 py-2 md:py-2.5 rounded-full text-xs font-black tracking-widest uppercase transition-all duration-300 no-underline"
+                >
+                  <span>DASHBOARD</span>
+                </Link>
+              )}
+              <button
+                onClick={handleLogout}
+                className="group relative flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 hover:text-white px-4 md:px-6 py-2 md:py-2.5 rounded-full text-xs font-black tracking-widest uppercase transition-all duration-300 hover:bg-red-500 shadow-lg active:scale-95 cursor-pointer"
+              >
+                <span>LOGOUT</span>
+                <LogOut size={14} strokeWidth={2.5} className="group-hover:scale-110 transition-transform" />
+              </button>
+            </>
           ) : (
-            <Link 
-              href="/login" 
+            <Link
+              href="/login"
               className="group relative flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-black px-4 md:px-6 py-2 md:py-2.5 rounded-full text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-lg shadow-amber-500/20 active:scale-95 no-underline"
             >
               <span>PORTAL</span>

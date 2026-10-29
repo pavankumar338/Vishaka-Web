@@ -1,49 +1,50 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { QRCodeCanvas } from "qrcode.react";
-import { Plus, Trash2, Download, Search, Loader2, Building, Users, ShieldCheck, QrCode, Mail, ScanLine, LogOut, LayoutDashboard, ChevronRight, X, Upload, FileText, AlertTriangle, CheckCircle2, Table2, RefreshCw, Sparkles } from "lucide-react";
-import { Participant } from "@/lib/types";
-import { motion, AnimatePresence } from "framer-motion";
+import { 
+    Plus, Trash2, Edit3, Copy, Search, Loader2, Calendar, MapPin, 
+    Users, ShieldCheck, QrCode, Mail, ScanLine, LayoutDashboard, 
+    ChevronRight, X, Sparkles, Filter, CheckCircle2, ArrowRight, 
+    RefreshCw, AlertCircle, Layers, Check, ExternalLink, BarChart3,
+    Database, Table2, FileCode, Terminal
+} from "lucide-react";
+import { EventItem, Participant } from "@/lib/types";
+import { motion, AnimatePresence, Variants } from "framer-motion";
 import { supabase } from "@/lib/supabase";
+import { getEvents, createEvent, updateEvent, deleteEvent } from "@/lib/events";
+import { 
+    getEventTableNames, 
+    generateEventTablesSQL, 
+    provisionEventTables, 
+    checkTableExists,
+    sanitizeEventTableName 
+} from "@/lib/eventTables";
+import EventTablesModal from "@/app/components/EventTablesModal";
 import Link from "next/link";
 
-type CsvRow = {
-    name: string;
-    register_number: string;
-    year: string;
-    department: string;
-    section: string;
-    game: string;
-    category: string;
-    culturals: string;
-    email: string;
-    mobile: string;
-    _error?: string;
-};
+const CATEGORIES = ["ALL", "TECHNICAL", "CULTURAL", "SYMPOSIUM", "GAMING", "SPORTS", "WORKSHOP"] as const;
+const STATUS_OPTIONS = ["all", "active", "upcoming", "completed"] as const;
 
-export default function AdminPage() {
-    const [participants, setParticipants] = useState<Participant[]>([]);
-    const [searchTerm, setSearchTerm] = useState("");
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
-    const [baseUrl, setBaseUrl] = useState("");
+export default function AdminEventsDashboard() {
     const router = useRouter();
 
-    // CSV Import state
-    const [showCsvModal, setShowCsvModal] = useState(false);
-    const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
-    const [csvFileName, setCsvFileName] = useState("");
-    const [csvImporting, setCsvImporting] = useState(false);
-    const [csvProgress, setCsvProgress] = useState(0);
-    const [csvDone, setCsvDone] = useState(false);
-    const [csvErrors, setCsvErrors] = useState<string[]>([]);
-    const [isDragging, setIsDragging] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [events, setEvents] = useState<EventItem[]>([]);
+    const [participants, setParticipants] = useState<Participant[]>([]);
+    const [checkedInIds, setCheckedInIds] = useState<Set<string>>(new Set());
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+    const [selectedStatus, setSelectedStatus] = useState<string>("all");
 
+    // Modal States
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+    const [deletingEvent, setDeletingEvent] = useState<EventItem | null>(null);
+    const [tablesModalEvent, setTablesModalEvent] = useState<EventItem | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // Auth verification
     useEffect(() => {
         const isAdmin = localStorage.getItem("vishaka_admin_session");
         const role = localStorage.getItem("vishaka_role");
@@ -56,992 +57,670 @@ export default function AdminPage() {
             return;
         }
 
-        const windowUrl = window.location.origin;
-        const defaultUrl = windowUrl.includes('localhost')
-            ? `http://10.136.9.91:3000`
-            : windowUrl;
-
-        setBaseUrl(defaultUrl);
-        fetchParticipants();
+        loadAllData();
     }, [router]);
 
-    useEffect(() => {
-        if (participants.length > 0) {
-            setParticipants(prev => prev.map(p => ({
-                ...p,
-                qrValue: `${baseUrl}/p/${p.participant_id || p.id}`
-            })));
-        }
-    }, [baseUrl]);
-
+    // Supabase Real-time updates for participants & events
     useEffect(() => {
         const channel = supabase
-            .channel('dashboard-live-sync')
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'participants' },
-                () => {
-                    fetchParticipants();
-                }
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'check_in_logs' },
-                () => {
-                    fetchParticipants();
-                }
-            )
+            .channel('admin-events-live')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
+                fetchParticipantsOnly();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'check_in_logs' }, () => {
+                fetchParticipantsOnly();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
+                loadEventsOnly();
+            })
             .subscribe();
-
-        // 5-second backup interval to ensure real-time accuracy across multiple scanner devices
-        const interval = setInterval(() => {
-            fetchParticipants();
-        }, 5000);
 
         return () => {
             supabase.removeChannel(channel);
-            clearInterval(interval);
         };
     }, []);
 
-    async function fetchParticipants() {
+    async function loadAllData() {
+        setLoading(true);
         try {
-            const [pRes, logRes] = await Promise.all([
-                supabase.from('participants').select('*').order('created_at', { ascending: false }),
-                supabase.from('check_in_logs').select('participant_id, logged_at')
-            ]);
-
-            if (pRes.error) throw pRes.error;
-
-            const checkedInSet = new Set((logRes.data || []).map(l => l.participant_id));
-
-            const mappedData: Participant[] = (pRes.data || []).map(item => {
-                const rawId = item.participant_id || item.id || "";
-                const cleanId = rawId.replace(/splash/gi, "Vishaka");
-                const isCheckedIn = item.status === 'checked-in' || checkedInSet.has(rawId) || checkedInSet.has(cleanId) || checkedInSet.has(item.id);
-
-                // Seamlessly migrate legacy splash IDs in Supabase to Vishaka
-                if (item.participant_id && /splash/i.test(item.participant_id)) {
-                    supabase.from('participants').update({
-                        participant_id: cleanId,
-                        event: (item.event || '').replace(/splash/gi, 'Vishaka')
-                    }).eq('participant_id', item.participant_id).then();
-                }
-
-                return {
-                    id: cleanId,
-                    participant_id: cleanId,
-                    name: item.participant_name,
-                    participant_name: item.participant_name,
-                    registerNumber: item.register_number || "",
-                    year: item.year || "",
-                    department: item.department || "",
-                    section: item.section || "",
-                    game: item.game || "",
-                    email: item.email || "",
-                    mobile: item.mobile || item.phone || "",
-                    category: item.category || "",
-                    culturalInterest: item.cultural_interest || item.culturals || "",
-                    status: isCheckedIn ? 'checked-in' : (item.status || 'registered'),
-                    event: (item.event || "Vishaka 2026").replace(/splash/gi, "Vishaka").replace(/Vinayaka Chavithi/gi, "Vishaka"),
-                    registrationDate: new Date(item.created_at).toLocaleDateString(),
-                    qrValue: `${baseUrl}/p/${cleanId}`
-                };
-            });
-
-            setParticipants(mappedData);
-        } catch (error) {
-            const errMsg = (error && typeof error === 'object')
-                ? (error as any).message || (error as any).details || (error as any).hint || JSON.stringify(error)
-                : String(error);
-            console.error('Error fetching participants:', errMsg);
+            await Promise.all([loadEventsOnly(), fetchParticipantsOnly()]);
+        } catch (e) {
+            console.error("Error loading dashboard data:", e);
         } finally {
             setLoading(false);
         }
     }
 
-    const generateParticipantId = () => {
-        let maxCount = 0;
-        participants.forEach(p => {
-            const match = p.participant_id?.match(/(?:Vishaka|Splash)2026-(\d+)/i);
-            if (match) {
-                const num = parseInt(match[1], 10);
-                if (num > maxCount) maxCount = num;
+    async function loadEventsOnly() {
+        try {
+            const list = await getEvents();
+            setEvents(list);
+        } catch (err) {
+            console.error("Failed to load events:", err);
+        }
+    }
+
+    async function fetchParticipantsOnly() {
+        try {
+            const [pRes, logRes] = await Promise.all([
+                supabase.from('participants').select('*'),
+                supabase.from('check_in_logs').select('participant_id')
+            ]);
+            if (pRes.data) {
+                setParticipants(pRes.data as any);
             }
-        });
-        const padded = (maxCount + 1).toString().padStart(4, '0');
-        return `Vishaka2026-${padded}`;
-    };
-
-    const handleAddParticipant = async (data: any) => {
-        setIsSaving(true);
-        try {
-            const customId = generateParticipantId();
-            const { error } = await supabase.from('participants').insert([{
-                participant_id: customId,
-                participant_name: data.name,
-                email: data.email || "",
-                mobile: data.mobile || "",
-                category: data.category || "Games",
-                cultural_interest: data.culturalInterest || "",
-                register_number: data.registerNumber,
-                year: data.year,
-                department: data.department,
-                section: data.section,
-                game: data.game || "",
-                event: "Vishaka 2026",
-                status: "registered",
-            }]);
-            if (error) throw error;
-            setShowAddModal(false);
-            await fetchParticipants();
-        } catch (error: any) {
-            console.error('Error adding participant:', error);
-            alert("Error adding participant: " + (error?.message || JSON.stringify(error)));
-            throw error;
-        } finally {
-            setIsSaving(false);
+            if (logRes.data) {
+                setCheckedInIds(new Set(logRes.data.map(l => l.participant_id)));
+            }
+        } catch (err) {
+            console.error("Failed to fetch participants count:", err);
         }
-    };
+    }
 
-    const deleteParticipant = async (participantId?: string) => {
-        if (!participantId) return;
-        if (!confirm("Confirm system deletion for: " + participantId)) return;
-        try {
-            const { error } = await supabase.from('participants').delete().eq('participant_id', participantId);
-            if (error) throw error;
-            setParticipants(participants.filter((p) => p.participant_id !== participantId));
-        } catch (error) {
-            alert("Deletion failed.");
-        }
-    };
+    // Helper: calculate registered & checked-in counts for an event
+    const eventStats = useMemo(() => {
+        const stats: Record<string, { registered: number; checkedIn: number }> = {};
+        
+        events.forEach(evt => {
+            const isMainSymposium = evt.id === "vishaka-2026" || /vishaka/i.test(evt.code);
+            const evtCode = evt.code.toLowerCase();
+            const evtTitle = evt.title.toLowerCase();
 
-    const handleResetDay = async () => {
-        if (!confirm("This will reset all attendees' statuses back to 'registered' for a new attendance day. Are you sure?")) return;
+            const matched = participants.filter((p: any) => {
+                const pEvent = (p.event || "").trim().toLowerCase();
+                if (isMainSymposium) {
+                    return !pEvent || /vishaka/i.test(pEvent) || /splash/i.test(pEvent) || pEvent.includes(evtCode);
+                }
+                return pEvent.includes(evtCode) || pEvent.includes(evtTitle) || evtTitle.includes(pEvent);
+            });
 
-        setIsSaving(true);
-        try {
-            const { error } = await supabase
-                .from('participants')
-                .update({ status: 'registered' })
-                .neq('status', 'registered');
+            const checkedIn = matched.filter((p: any) => 
+                p.status === 'checked-in' || checkedInIds.has(p.participant_id) || checkedInIds.has(p.id)
+            ).length;
 
-            if (error) throw error;
-
-            alert("Attendance successfully reset for a new day.");
-            fetchParticipants();
-        } catch (error: any) {
-            console.error('Error resetting attendance:', error);
-            alert("Error resetting attendance: " + (error?.message || JSON.stringify(error)));
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'checked-in': return '#00ff88';
-            case 'checked-out': return '#3b82f6';
-            case 'registered': default: return '#f59e0b';
-        }
-    };
-
-    const filteredParticipants = participants
-        .map(p => {
-            const cleanId = (p.participant_id || p.id || "").replace(/splash/gi, "Vishaka");
-            return {
-                ...p,
-                id: cleanId,
-                participant_id: cleanId,
-                qrValue: p.qrValue ? p.qrValue.replace(/splash/gi, "Vishaka") : p.qrValue,
+            stats[evt.id] = {
+                registered: matched.length,
+                checkedIn: checkedIn
             };
-        })
-        .filter(
-            (p) =>
-                p.participant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                p.registerNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                p.participant_id?.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-
-    const downloadQR = (id?: string, name?: string) => {
-        const validId = id || "unknown";
-        const validName = name || "participant";
-        const canvas = document.getElementById(`qr-${validId}`) as HTMLCanvasElement;
-        if (canvas) {
-            const url = canvas.toDataURL("image/png");
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `QR-${validName.replace(/\s+/g, "-")}.png`;
-            link.click();
-        }
-    };
-
-    // ── CSV helpers ──────────────────────────────────────────────────────────
-    const REQUIRED_HEADERS = ["name", "register_number"];
-
-    const parseCsv = (text: string): CsvRow[] => {
-        const lines = text.trim().split(/\r?\n/);
-        if (lines.length < 2) return [];
-
-        const headerLine = lines[0];
-        let delimiter = ",";
-        const commaCount = (headerLine.match(/,/g) || []).length;
-        const tabCount = (headerLine.match(/\t/g) || []).length;
-        const semiCount = (headerLine.match(/;/g) || []).length;
-        if (tabCount > commaCount && tabCount > semiCount) delimiter = "\t";
-        else if (semiCount > commaCount && semiCount > tabCount) delimiter = ";";
-
-        const rawHeaders = headerLine.split(delimiter).map(h =>
-            h.trim().toLowerCase().replace(/^["']|["']$/g, "").replace(/\s+/g, "_")
-        );
-        const rows: CsvRow[] = [];
-
-        for (let i = 1; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-
-            const values: string[] = [];
-            if (delimiter === ",") {
-                let cur = "";
-                let inQuotes = false;
-                for (const ch of line) {
-                    if (ch === '"') inQuotes = !inQuotes;
-                    else if (ch === ',' && !inQuotes) { values.push(cur.trim()); cur = ""; }
-                    else { cur += ch; }
-                }
-                values.push(cur.trim());
-            } else {
-                line.split(delimiter).forEach(v => values.push(v.trim().replace(/^["']|["']$/g, "")));
-            }
-
-            const row: Record<string, string> = {};
-            let detectedEmail = "";
-            let detectedMobile = "";
-
-            rawHeaders.forEach((h, idx) => {
-                const val = values[idx] || "";
-                row[h] = val;
-
-                // Map aliases to standard field names
-                if (["name", "participant_name", "student_name", "full_name", "identity", "student"].includes(h) || h.includes("student_name") || h.includes("participant_name")) {
-                    row["name"] = val;
-                }
-                if (["id", "reg_no", "regno", "reg_number", "register_no", "register_number", "enrollment_number", "roll_no", "rollno", "ht_no", "hallticket"].includes(h) || h.includes("register") || h.includes("reg_no") || h.includes("roll")) {
-                    row["register_number"] = val;
-                }
-                if (["year", "yr", "academic_year", "study_year"].includes(h) || h.includes("year")) {
-                    row["year"] = val;
-                }
-                if (["dept", "department", "branch"].includes(h) || h.includes("dept") || h.includes("branch")) {
-                    row["department"] = val;
-                }
-                if (["sec", "section", "class"].includes(h) || h.includes("section")) {
-                    row["section"] = val;
-                }
-                if (["category", "cat", "participant_category", "type"].includes(h) || h.includes("category")) {
-                    row["category"] = val;
-                }
-                if (["culturals", "cultural", "cultural_interest", "culturals_interest", "cultural_activity", "cultural_event"].includes(h) || h.includes("cultural")) {
-                    row["culturals"] = val;
-                }
-                if (["game", "game_name", "event", "event_name", "sport", "sports", "activity"].includes(h) || h.includes("game") || h.includes("sport")) {
-                    row["game"] = val;
-                }
-                if (["mobile", "phone", "phone_number", "mobile_number", "contact", "contact_number", "ph_no", "whatsapp", "cell"].includes(h) || h.includes("mobile") || h.includes("phone") || h.includes("contact")) {
-                    row["mobile"] = val;
-                }
-                if (["email", "mail", "gmail", "email_id", "mail_id", "gmail_id", "emailid", "mailid", "gmailid", "email_address", "e_mail", "google_mail"].includes(h) || h.includes("email") || h.includes("mail") || h.includes("gmail")) {
-                    row["email"] = val;
-                }
-
-                // Check cell value patterns as fallback
-                if (!detectedEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())) {
-                    detectedEmail = val.trim();
-                }
-                if (!detectedMobile && /^[6-9]\d{9}$/.test(val.replace(/[\s+-]/g, ""))) {
-                    detectedMobile = val.trim();
-                }
-            });
-
-            const parsedName = row["name"] || row["participant_name"] || "";
-            const parsedReg = row["register_number"] || "";
-            const parsedEmail = row["email"] || detectedEmail || "";
-            const parsedMobile = row["mobile"] || detectedMobile || "";
-            let parsedCategory = row["category"] || "";
-            const parsedCulturals = row["culturals"] || row["cultural_interest"] || "";
-            const parsedGame = row["game"] || "";
-
-            // Auto-infer category if not given explicitly
-            if (!parsedCategory) {
-                if (parsedCulturals) parsedCategory = "Culturals";
-                else if (parsedGame) parsedCategory = "Games";
-            }
-
-            const errors: string[] = [];
-            if (!parsedName) errors.push("Missing: Name");
-            if (!parsedReg) errors.push("Missing: Register Number");
-
-            rows.push({
-                name: parsedName,
-                register_number: parsedReg,
-                year: row["year"] || "",
-                department: row["department"] || "",
-                section: row["section"] || "",
-                category: parsedCategory,
-                culturals: parsedCulturals,
-                game: parsedGame,
-                email: parsedEmail,
-                mobile: parsedMobile,
-                _error: errors.length ? errors.join(", ") : undefined,
-            });
-        }
-        return rows;
-    };
-
-    const handleCsvFile = (file: File) => {
-        if (!file.name.endsWith(".csv")) {
-            alert("Please upload a valid .csv file.");
-            return;
-        }
-        setCsvFileName(file.name);
-        setCsvDone(false);
-        setCsvProgress(0);
-        setCsvErrors([]);
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const text = e.target?.result as string;
-            const parsed = parseCsv(text);
-            setCsvRows(parsed);
-        };
-        reader.readAsText(file);
-    };
-
-    const handleCsvDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const file = e.dataTransfer.files[0];
-        if (file) handleCsvFile(file);
-    }, []);
-
-    // Generate next ID based on current max + offset for batch imports
-    const generateNextId = (currentMax: number) => {
-        const padded = (currentMax + 1).toString().padStart(4, "0");
-        return `Vishaka2026-${padded}`;
-    };
-
-    const handleBulkImport = async () => {
-        const validRows = csvRows.filter(r => !r._error);
-        if (!validRows.length) return;
-
-        setCsvImporting(true);
-        setCsvProgress(0);
-        setCsvErrors([]);
-
-        // Fetch current max id from DB
-        const { data: allIds } = await supabase
-            .from("participants")
-            .select("participant_id");
-
-        let maxCount = 0;
-        (allIds || []).forEach((p: { participant_id: string }) => {
-            const m = p.participant_id?.match(/(?:Vishaka|Splash)2026-(\d+)/i);
-            if (m) maxCount = Math.max(maxCount, parseInt(m[1], 10));
         });
 
-        const errors: string[] = [];
-        for (let i = 0; i < validRows.length; i++) {
-            const row = validRows[i];
-            maxCount++;
-            const customId = generateNextId(maxCount - 1);
-            const { error } = await supabase.from("participants").insert([{
-                participant_id: customId,
-                participant_name: row.name,
-                email: row.email,
-                mobile: row.mobile,
-                category: row.category,
-                cultural_interest: row.culturals,
-                register_number: row.register_number,
-                year: row.year,
-                department: row.department,
-                section: row.section,
-                game: row.game,
-                event: "Vishaka 2026",
-                status: "registered",
-            }]);
-            if (error) errors.push(`Row ${i + 1} (${row.name}): ${error.message}`);
-            setCsvProgress(Math.round(((i + 1) / validRows.length) * 100));
+        return stats;
+    }, [events, participants, checkedInIds]);
+
+    // Aggregates across the entire fest
+    const totalEventsCount = events.length;
+    const activeEventsCount = events.filter(e => e.status === "active").length;
+    const totalFestRegistrations = participants.length;
+    const totalFestCheckedIn = participants.filter((p: any) => 
+        p.status === 'checked-in' || checkedInIds.has(p.participant_id) || checkedInIds.has(p.id)
+    ).length;
+
+    // Filter events
+    const filteredEvents = useMemo(() => {
+        return events.filter(evt => {
+            const matchesCategory = selectedCategory === "ALL" || evt.category.toUpperCase() === selectedCategory;
+            const matchesStatus = selectedStatus === "all" || evt.status === selectedStatus;
+            const matchesSearch = !searchTerm || 
+                evt.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                evt.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                evt.venue.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (evt.description && evt.description.toLowerCase().includes(searchTerm.toLowerCase()));
+
+            return matchesCategory && matchesStatus && matchesSearch;
+        });
+    }, [events, selectedCategory, selectedStatus, searchTerm]);
+
+    // Handle Create Event with optional Table Provisioning
+    const handleCreateEvent = async (data: Omit<EventItem, 'id' | 'createdAt'>, autoCreateTables: boolean = true) => {
+        setIsSubmitting(true);
+        try {
+            let tableProps: Partial<EventItem> = {};
+            let provResult: any = null;
+
+            if (autoCreateTables) {
+                const { participantsTable, checkInTable } = getEventTableNames(data.title);
+                tableProps.participantsTable = participantsTable;
+                tableProps.checkInTable = checkInTable;
+
+                provResult = await provisionEventTables(data.title);
+                tableProps.tablesCreated = provResult.success;
+            }
+
+            const newEvt = await createEvent({
+                ...data,
+                ...tableProps,
+            });
+
+            setEvents(prev => [newEvt, ...prev]);
+            setShowCreateModal(false);
+
+            // If auto-create was selected, open the Table Modal so the user can see status & copy SQL if needed
+            if (autoCreateTables) {
+                setTablesModalEvent(newEvt);
+            }
+        } catch (err: any) {
+            alert("Failed to create event: " + (err.message || err));
+        } finally {
+            setIsSubmitting(false);
         }
-
-        setCsvErrors(errors);
-        setCsvImporting(false);
-        setCsvDone(true);
-        fetchParticipants();
     };
 
-    const resetCsvModal = () => {
-        setCsvRows([]);
-        setCsvFileName("");
-        setCsvProgress(0);
-        setCsvDone(false);
-        setCsvErrors([]);
-        setShowCsvModal(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+    // Handle Update Event
+    const handleUpdateEvent = async (data: Partial<EventItem>) => {
+        if (!editingEvent) return;
+        setIsSubmitting(true);
+        try {
+            const updated = await updateEvent(editingEvent.id, data);
+            setEvents(prev => prev.map(e => e.id === editingEvent.id ? updated : e));
+            setEditingEvent(null);
+        } catch (err: any) {
+            alert("Failed to update event: " + (err.message || err));
+        } finally {
+            setIsSubmitting(false);
+        }
     };
-    // ─────────────────────────────────────────────────────────────────────────
 
-    const fadin = {
-        hidden: { opacity: 0, y: 10 },
+    // Handle Delete Event
+    const handleDeleteEvent = async () => {
+        if (!deletingEvent) return;
+        setIsSubmitting(true);
+        try {
+            await deleteEvent(deletingEvent.id);
+            setEvents(prev => prev.filter(e => e.id !== deletingEvent.id));
+            setDeletingEvent(null);
+        } catch (err: any) {
+            alert("Failed to delete event: " + (err.message || err));
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    // Handle Duplicate Event
+    const handleDuplicateEvent = async (source: EventItem) => {
+        try {
+            const cloneData: Omit<EventItem, 'id' | 'createdAt'> = {
+                title: `${source.title} (Copy)`,
+                code: `${source.code}-COPY`,
+                category: source.category,
+                description: source.description,
+                venue: source.venue,
+                date: source.date,
+                time: source.time,
+                status: 'upcoming',
+                maxCapacity: source.maxCapacity,
+                colorTheme: source.colorTheme,
+            };
+            const created = await createEvent(cloneData);
+            setEvents(prev => [created, ...prev]);
+        } catch (e: any) {
+            alert("Duplicate failed: " + e.message);
+        }
+    };
+
+    const getCategoryBadgeClass = (category: string) => {
+        switch (category.toLowerCase()) {
+            case 'technical': return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+            case 'cultural': return 'bg-pink-500/10 text-pink-400 border-pink-500/20';
+            case 'gaming': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+            case 'sports': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
+            case 'workshop': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+            case 'symposium': default: return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+        }
+    };
+
+    const fadin: Variants = {
+        hidden: { opacity: 0, y: 15 },
         visible: (i: number) => ({
             opacity: 1,
             y: 0,
-            transition: { delay: i * 0.05, duration: 0.5, ease: "easeOut" } as any,
+            transition: { delay: i * 0.05, duration: 0.4, ease: [0.16, 1, 0.3, 1] } as any,
         }),
     };
 
     return (
         <div className="min-h-screen bg-[#050505] text-[#e0e0e0] font-outfit selection:bg-amber-500/30 selection:text-amber-200 overflow-x-hidden relative pb-32">
-
-            {/* Background Grid Pattern */}
+            {/* Background Grid Accent */}
             <div className="fixed inset-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: `radial-gradient(circle at 1px 1px, white 1px, transparent 0)`, backgroundSize: '40px 40px' }} />
 
-            <div className="max-w-7xl mx-auto px-6 pt-32">
-                {/* Header Section */}
+            <div className="max-w-7xl mx-auto px-4 md:px-6 pt-24 md:pt-28">
+
+                {/* Dashboard Main Header */}
                 <motion.header
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-10 md:gap-12 mb-12 md:mb-20"
+                    className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 mb-10"
                 >
-                    <div className="space-y-6 w-full lg:w-auto">
-                        <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 md:w-12 md:h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-black shadow-2xl shadow-amber-500/20">
-                                <LayoutDashboard className="w-5 h-5 md:w-6 md:h-6" />
-                            </div>
-                            <div>
-                                <p className="text-[8px] md:text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase">Administrator Control</p>
-                                <h1 className="text-3xl md:text-5xl font-black text-white tracking-tighter uppercase leading-none">Command Center<span className="text-amber-500">.</span></h1>
-                            </div>
+                    <div className="space-y-3">
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-black uppercase tracking-widest">
+                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                            Administrator Control • Event Orchestration
                         </div>
+
+                        <h1 className="text-3xl sm:text-5xl md:text-6xl font-black text-white tracking-tight uppercase leading-none">
+                            Events <span className="text-amber-500">Dashboard.</span>
+                        </h1>
+
+                        <p className="text-xs md:text-sm text-white/40 font-medium max-w-xl">
+                            Create, configure, and orchestrate all festival events at a time. Click any event to launch its live Command Center.
+                        </p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3 md:gap-4 w-full lg:w-auto">
-                        <Link href="/admin/scan" className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/50 hover:text-white">
-                            <ScanLine className="w-4 h-4 text-amber-500" /> SCANNER
+                    {/* Header Controls */}
+                    <div className="flex flex-wrap items-center gap-2.5 md:gap-3 w-full lg:w-auto">
+                        <Link
+                            href="/admin/scan"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-[#101013] border border-white/5 hover:border-amber-500/30 px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] text-white/60 hover:text-white transition-all shadow-lg"
+                        >
+                            <ScanLine className="w-3.5 h-3.5 text-amber-500" /> SCANNER
                         </Link>
-                        <Link href="/admin/broadcast" className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/50 hover:text-white">
-                            <Mail className="w-4 h-4" /> BROADCAST
+
+                        <Link
+                            href="/admin/broadcast"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-[#101013] border border-white/5 hover:border-amber-500/30 px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] text-white/60 hover:text-white transition-all shadow-lg"
+                        >
+                            <Mail className="w-3.5 h-3.5 text-amber-500" /> BROADCAST
                         </Link>
-                        <button onClick={handleResetDay} disabled={isSaving} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-red-500/80 hover:text-red-400 disabled:opacity-50">
-                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin text-red-500" /> : <RefreshCw className="w-4 h-4 text-red-500" />} RESET DAY
+
+                        <Link
+                            href="/admin/events/all"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-[#101013] border border-white/5 hover:border-amber-500/30 px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] text-white/60 hover:text-white transition-all shadow-lg"
+                        >
+                            <BarChart3 className="w-3.5 h-3.5 text-amber-500" /> ALL PARTICIPANTS
+                        </Link>
+
+                        <button
+                            onClick={loadAllData}
+                            className="w-10 h-10 flex items-center justify-center bg-[#101013] border border-white/5 hover:border-amber-500/30 rounded-xl text-white/40 hover:text-white transition-all cursor-pointer"
+                            title="Refresh Data"
+                        >
+                            <RefreshCw size={15} />
                         </button>
-                        <button onClick={() => setShowCsvModal(true)} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#111111] border border-white/5 hover:border-amber-500/30 transition-all px-4 md:px-6 py-3.5 md:py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/50 hover:text-white">
-                            <Upload className="w-4 h-4 text-amber-500" /> IMPORT CSV
-                        </button>
-                        <button onClick={() => setShowAddModal(true)} className="w-full md:w-auto flex items-center justify-center gap-3 bg-white text-black px-8 py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.3em] hover:bg-amber-500 transition-all shadow-2xl active:scale-95">
-                            <Plus className="w-4 h-4 md:w-[18px] md:h-[18px]" strokeWidth={3} /> REGISTER NEW
+
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-400 text-black px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-[0.25em] hover:brightness-110 transition-all shadow-xl shadow-amber-500/20 active:scale-95 cursor-pointer"
+                        >
+                            <Plus className="w-4 h-4" strokeWidth={3} /> CREATE EVENT
                         </button>
                     </div>
                 </motion.header>
 
-
-                {/* Dashboard Stats */}
+                {/* Festival Summary Stats (4 Metrics) */}
                 <motion.div
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 }}
-                    className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8 md:mb-12"
+                    className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5 mb-10"
                 >
-                    <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl group-hover:bg-amber-500/10 transition-colors" />
-                        <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+                    <div className="bg-[#0b0b0e] border border-white/5 rounded-3xl p-5 md:p-6 shadow-xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-500/10 transition-colors" />
+                        <div className="relative z-10 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
-                                <Users size={20} className="text-white/20 group-hover:text-amber-500 transition-colors" />
-                                <span className="text-[9px] font-black uppercase text-amber-500 tracking-[0.2em] bg-amber-500/10 px-2 py-1 rounded-md">Total</span>
+                                <Layers size={18} className="text-white/20 group-hover:text-amber-500 transition-colors" />
+                                <span className="text-[9px] font-black uppercase text-amber-500 tracking-[0.2em] bg-amber-500/10 px-2 py-0.5 rounded-md">Total</span>
                             </div>
                             <div>
-                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.length}</h3>
-                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Total Registrations</p>
+                                <h3 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-none mb-1">
+                                    {loading ? <Loader2 className="w-6 h-6 animate-spin text-amber-500" /> : totalEventsCount}
+                                </h3>
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">MANAGED EVENTS</p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl group-hover:bg-emerald-500/10 transition-colors" />
-                        <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+                    <div className="bg-[#0b0b0e] border border-white/5 rounded-3xl p-5 md:p-6 shadow-xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
+                        <div className="relative z-10 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
-                                <ShieldCheck size={20} className="text-white/20 group-hover:text-emerald-500 transition-colors" />
-                                <span className="text-[9px] font-black uppercase text-emerald-500 tracking-[0.2em] bg-emerald-500/10 px-2 py-1 rounded-md">Inside</span>
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                                <span className="text-[9px] font-black uppercase text-emerald-400 tracking-[0.2em] bg-emerald-400/10 px-2 py-0.5 rounded-md">Live</span>
                             </div>
                             <div>
-                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.filter(p => p.status === 'checked-in').length}</h3>
-                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Checked In Today</p>
+                                <h3 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-none mb-1">
+                                    {loading ? <Loader2 className="w-6 h-6 animate-spin text-emerald-500" /> : activeEventsCount}
+                                </h3>
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">ACTIVE SESSIONS</p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl group-hover:bg-amber-500/10 transition-colors" />
-                        <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+                    <div className="bg-[#0b0b0e] border border-white/5 rounded-3xl p-5 md:p-6 shadow-xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors" />
+                        <div className="relative z-10 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
-                                <Sparkles size={20} className="text-white/20 group-hover:text-amber-500 transition-colors" />
-                                <span className="text-[9px] font-black uppercase text-amber-400 tracking-[0.2em] bg-amber-500/10 px-2 py-1 rounded-md">Activities</span>
+                                <Users size={18} className="text-white/20 group-hover:text-blue-500 transition-colors" />
+                                <span className="text-[9px] font-black uppercase text-blue-400 tracking-[0.2em] bg-blue-400/10 px-2 py-0.5 rounded-md">Delegates</span>
                             </div>
                             <div>
-                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.filter(p => p.game || p.category === 'Games' || p.category === 'Culturals').length}</h3>
-                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Games & Culturals</p>
+                                <h3 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-none mb-1">
+                                    {loading ? <Loader2 className="w-6 h-6 animate-spin text-blue-500" /> : totalFestRegistrations}
+                                </h3>
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">FEST REGISTRATIONS</p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="bg-[#0a0a0b] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-3xl group-hover:bg-purple-500/10 transition-colors" />
-                        <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+                    <div className="bg-[#0b0b0e] border border-white/5 rounded-3xl p-5 md:p-6 shadow-xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition-colors" />
+                        <div className="relative z-10 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
-                                <QrCode size={20} className="text-white/20 group-hover:text-purple-500 transition-colors" />
-                                <span className="text-[9px] font-black uppercase text-purple-500 tracking-[0.2em] bg-purple-500/10 px-2 py-1 rounded-md">Pending</span>
+                                <ShieldCheck size={18} className="text-white/20 group-hover:text-purple-500 transition-colors" />
+                                <span className="text-[9px] font-black uppercase text-purple-400 tracking-[0.2em] bg-purple-400/10 px-2 py-0.5 rounded-md">Checked In</span>
                             </div>
                             <div>
-                                <h3 className="text-4xl font-black text-white tracking-tighter">{participants.filter(p => !p.status || p.status === 'registered').length}</h3>
-                                <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">Awaiting Entry</p>
+                                <h3 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-none mb-1">
+                                    {loading ? <Loader2 className="w-6 h-6 animate-spin text-purple-500" /> : totalFestCheckedIn}
+                                </h3>
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">ATTENDEES INSIDE</p>
                             </div>
                         </div>
                     </div>
                 </motion.div>
 
-                <div className="mb-8">
-                    <div className="relative group h-20 md:h-24">
-                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-amber-500 transition-colors" size={20} />
-                        <input
-                            type="text"
-                            placeholder="SEARCH BY IDENTITY TAG OR NAME"
-                            className="w-full h-full bg-white/[0.02] border border-white/5 rounded-3xl md:rounded-[2rem] py-6 md:py-8 pl-14 md:pl-16 pr-6 md:pr-8 focus:outline-none focus:border-amber-500/30 transition-all font-outfit text-[10px] md:text-xs font-black tracking-[0.2em] md:tracking-[0.3em] placeholder:text-white/10"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                {/* Filter & Search Bar */}
+                <div className="space-y-4 mb-8">
+                    <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+                        {/* Search Input */}
+                        <div className="relative flex-1 max-w-md">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" size={17} />
+                            <input
+                                type="text"
+                                placeholder="Search by event title, code, venue..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full bg-[#0c0c0f] border border-white/10 rounded-2xl py-3 pl-11 pr-4 text-xs font-bold text-white placeholder:text-white/25 outline-none focus:border-amber-500/50 transition-colors"
+                            />
+                        </div>
+
+                        {/* Status Filter */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-white/30 uppercase tracking-widest hidden sm:inline">Status:</span>
+                            <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 text-[10px] font-black uppercase tracking-wider">
+                                {STATUS_OPTIONS.map(opt => (
+                                    <button
+                                        key={opt}
+                                        onClick={() => setSelectedStatus(opt)}
+                                        className={`px-3 py-1.5 rounded-lg transition-colors capitalize ${
+                                            selectedStatus === opt 
+                                                ? 'bg-amber-500 text-black font-black' 
+                                                : 'text-white/40 hover:text-white'
+                                        }`}
+                                    >
+                                        {opt}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Category Tabs */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-hide text-[10px] font-black uppercase tracking-wider">
+                        {CATEGORIES.map(cat => (
+                            <button
+                                key={cat}
+                                onClick={() => setSelectedCategory(cat)}
+                                className={`px-4 py-2 rounded-xl border whitespace-nowrap transition-all ${
+                                    selectedCategory === cat
+                                        ? 'bg-white text-black border-white shadow-lg'
+                                        : 'bg-white/[0.02] border-white/5 text-white/50 hover:text-white hover:border-white/20'
+                                }`}
+                            >
+                                {cat}
+                            </button>
+                        ))}
                     </div>
                 </div>
 
-                {/* Table Interface */}
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="bg-[#0a0a0b] border border-white/5 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]"
-                >
-                    {loading ? (
-                        <div className="p-20 md:p-32 flex flex-col items-center justify-center gap-6">
-                            <div className="relative">
-                                <Loader2 className="w-10 h-10 md:w-12 md:h-12 animate-spin text-amber-500" />
-                                <div className="absolute inset-0 bg-amber-500 blur-2xl opacity-20 animate-pulse" />
-                            </div>
-                            <p className="text-[8px] md:text-[10px] font-black tracking-[0.4em] text-white/20 uppercase">Synchronizing System Data...</p>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Mobile Card View */}
-                            <div className="md:hidden divide-y divide-white/[0.05]">
-                                {filteredParticipants.map((p) => (
-                                    <div key={p.participant_id} className="p-4 space-y-4 bg-white/[0.01]">
-                                        <div className="flex justify-between items-start">
-                                            <span className="font-mono text-[9px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-2.5 py-1 rounded-md border border-amber-500/10 whitespace-nowrap">
-                                                {p.participant_id}
+                {/* Events Cards Grid */}
+                {loading ? (
+                    <div className="py-24 flex flex-col items-center justify-center gap-4 text-white/30">
+                        <Loader2 size={36} className="animate-spin text-amber-500" />
+                        <p className="text-xs uppercase tracking-widest font-black">Loading event catalog...</p>
+                    </div>
+                ) : filteredEvents.length === 0 ? (
+                    <div className="bg-[#0b0b0e] border border-white/5 rounded-3xl p-12 text-center max-w-md mx-auto">
+                        <Layers size={36} className="mx-auto text-white/20 mb-4" />
+                        <h3 className="text-white font-black text-base uppercase tracking-wider mb-2">No Matching Events Found</h3>
+                        <p className="text-white/30 text-xs mb-6">
+                            Try adjusting your search terms or filter selections, or create a brand new event.
+                        </p>
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            className="bg-amber-500 text-black px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider hover:bg-amber-400 transition-colors"
+                        >
+                            + Create Event
+                        </button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredEvents.map((evt, i) => {
+                            const stats = eventStats[evt.id] || { registered: 0, checkedIn: 0 };
+                            const cap = evt.maxCapacity || 250;
+                            const pct = Math.min(100, Math.round((stats.registered / cap) * 100));
+
+                            return (
+                                <motion.div
+                                    key={evt.id}
+                                    variants={fadin}
+                                    initial="hidden"
+                                    animate="visible"
+                                    custom={i}
+                                    className="bg-[#0a0a0d] border border-white/10 hover:border-amber-500/40 rounded-3xl p-6 flex flex-col justify-between shadow-2xl relative overflow-hidden group transition-all duration-300 hover:-translate-y-1"
+                                >
+                                    {/* Subtle Top Glow Accent */}
+                                    <div 
+                                        className="absolute top-0 left-0 w-full h-[3px] opacity-70 group-hover:opacity-100 transition-opacity"
+                                        style={{ backgroundColor: evt.colorTheme || '#f59e0b' }}
+                                    />
+
+                                    <div>
+                                        {/* Card Header: Category & Status */}
+                                        <div className="flex items-center justify-between gap-2 mb-4">
+                                            <span className={`text-[9px] font-black uppercase tracking-[0.25em] px-2.5 py-1 rounded-full border ${getCategoryBadgeClass(evt.category)}`}>
+                                                {evt.category}
                                             </span>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => downloadQR(p.participant_id, p.participant_name)} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white/20">
-                                                    <Download size={14} />
-                                                </button>
-                                                <button onClick={() => deleteParticipant(p.participant_id)} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white/20">
-                                                    <Trash2 size={14} />
-                                                </button>
+
+                                            <div className="flex items-center gap-1.5">
+                                                <span className={`w-2 h-2 rounded-full ${
+                                                    evt.status === 'active' ? 'bg-emerald-400 animate-pulse' : 
+                                                    evt.status === 'upcoming' ? 'bg-blue-400' : 'bg-white/30'
+                                                }`} />
+                                                <span className="text-[9px] font-black uppercase tracking-wider text-white/50">
+                                                    {evt.status}
+                                                </span>
                                             </div>
                                         </div>
 
-                                        <div onClick={() => setSelectedParticipant(p)}>
-                                            <div className="font-black text-xs text-white tracking-widest uppercase mb-1">{p.participant_name}</div>
-                                            <div className="text-[8px] text-white/30 font-bold uppercase tracking-widest flex items-center gap-2">
-                                                <Building size={10} className="text-amber-500/50" /> {p.department} ({p.year})
+                                        {/* Title & Code */}
+                                        <div className="mb-4">
+                                            <div className="font-mono text-[10px] font-black tracking-widest text-amber-500/80 mb-1">
+                                                CODE: {evt.code}
+                                            </div>
+                                            <h2 className="text-xl font-black text-white uppercase tracking-tight leading-snug group-hover:text-amber-400 transition-colors line-clamp-2">
+                                                {evt.title}
+                                            </h2>
+                                        </div>
+
+                                        {/* Description */}
+                                        {evt.description && (
+                                            <p className="text-white/40 text-xs font-medium line-clamp-2 mb-5">
+                                                {evt.description}
+                                            </p>
+                                        )}
+
+                                        {/* Venue & Date Details */}
+                                        <div className="space-y-2 mb-6 text-xs text-white/50 font-semibold bg-white/[0.02] p-3 rounded-2xl border border-white/5">
+                                            <div className="flex items-center gap-2 truncate">
+                                                <MapPin size={13} className="text-amber-500 flex-shrink-0" />
+                                                <span className="truncate">{evt.venue || "Campus Venue"}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Calendar size={13} className="text-amber-500 flex-shrink-0" />
+                                                <span>{evt.date || "Date TBA"} {evt.time ? `• ${evt.time}` : ''}</span>
                                             </div>
                                         </div>
 
-                                        <div className="flex justify-between items-center">
-                                            <div className="inline-flex items-center gap-2 text-[8px] font-black tracking-widest px-2.5 py-1 rounded-full border" style={{ color: getStatusColor(p.status), borderColor: `${getStatusColor(p.status)}40`, backgroundColor: `${getStatusColor(p.status)}10` }}>
-                                                <div className="w-1 h-1 rounded-full" style={{ backgroundColor: getStatusColor(p.status) }} />
-                                                {p.status}
+                                        {/* Capacity & Attendance Bar */}
+                                        <div className="space-y-2 mb-6">
+                                            <div className="flex justify-between items-center text-xs font-bold">
+                                                <span className="text-white/50 uppercase text-[9px] tracking-wider">Capacity Fill</span>
+                                                <span className="text-white font-mono text-[11px]">
+                                                    <strong className="text-amber-400">{stats.registered}</strong> / {cap} ({pct}%)
+                                                </span>
                                             </div>
-                                            <div className="text-[9px] font-black text-white/20 tracking-widest uppercase">SEC {p.section} | {p.registerNumber}</div>
+                                            <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                                <div 
+                                                    className="h-full rounded-full transition-all duration-500"
+                                                    style={{ 
+                                                        width: `${pct}%`,
+                                                        backgroundColor: evt.colorTheme || '#f59e0b'
+                                                    }}
+                                                />
+                                            </div>
+                                            <div className="flex justify-between items-center text-[10px] text-white/40 font-bold uppercase tracking-wider">
+                                                <span>Present Inside: <strong className="text-emerald-400 font-mono">{stats.checkedIn}</strong></span>
+                                                <span>Pending: <strong className="text-white/70 font-mono">{stats.registered - stats.checkedIn}</strong></span>
+                                            </div>
                                         </div>
                                     </div>
-                                ))}
-                            </div>
 
-                            {/* Desktop Table View */}
-                            <div className="hidden md:block overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="bg-white/[0.02] border-b border-white/5 font-outfit text-[10px] font-black uppercase tracking-[0.4em] text-white/20">
-                                            <th className="px-10 py-8">IDENTITY TAG</th>
-                                            <th className="px-10 py-8">DELEGATE PROFILE</th>
-                                            <th className="px-10 py-8">DEPT & STATUS</th>
-                                            <th className="px-10 py-8 text-center uppercase tracking-[0.2em] text-amber-500/50">SECURED QR PASS</th>
-                                            <th className="px-10 py-8 text-right">CONTROLS</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-white/[0.02]">
-                                        {filteredParticipants.map((p, i) => (
-                                            <motion.tr
-                                                key={p.participant_id}
-                                                variants={fadin}
-                                                initial="hidden"
-                                                animate="visible"
-                                                custom={i}
-                                                className="group hover:bg-white/[0.01] transition-colors"
+                                    {/* Bottom Controls */}
+                                    <div className="space-y-3 pt-4 border-t border-white/5">
+                                        {/* Primary Dynamic Command Center Button */}
+                                        <Link
+                                            href={`/admin/events/${evt.id}`}
+                                            className="w-full flex items-center justify-center gap-2 bg-white text-black hover:bg-amber-500 py-3 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl active:scale-[0.98] group/btn no-underline"
+                                        >
+                                            <span>COMMAND CENTER</span>
+                                            <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
+                                        </Link>
+
+                                        {/* Sub Action Buttons */}
+                                        <div className="flex items-center justify-between gap-2">
+                                            <Link
+                                                href={`/admin/scan?event=${encodeURIComponent(evt.code)}`}
+                                                className="flex-1 flex items-center justify-center gap-1.5 bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors no-underline border border-white/5"
+                                                title="Open Scanner for this event"
                                             >
-                                                <td className="px-10 py-8">
-                                                    <span className="font-mono text-[11px] font-black text-amber-500/80 tracking-widest bg-amber-500/5 px-3 py-1.5 rounded-lg border border-amber-500/10 whitespace-nowrap">
-                                                        {p.participant_id}
-                                                    </span>
-                                                </td>
-                                                <td className="px-10 py-8">
-                                                    <div className="font-black text-sm text-white tracking-widest uppercase mb-1">{p.participant_name}</div>
-                                                    <div className="text-[10px] text-white/30 font-bold uppercase tracking-[0.1em] flex items-center gap-2">
-                                                        <Building size={10} className="text-amber-500/50" /> {p.registerNumber}
-                                                    </div>
-                                                </td>
-                                                <td className="px-10 py-8">
-                                                    <div className="text-[11px] font-black text-white/50 tracking-widest uppercase mb-2 group-hover:text-white transition-colors">{p.department} (Year {p.year}, Sec {p.section})</div>
-                                                    <div className="inline-flex items-center gap-2 lowercase text-[10px] font-black tracking-widest px-3 py-1 rounded-full border whitespace-nowrap" style={{ color: getStatusColor(p.status), borderColor: `${getStatusColor(p.status)}40`, backgroundColor: `${getStatusColor(p.status)}10` }}>
-                                                        <div className="w-1 h-1 rounded-full shadow-[0_0_5px_currentColor]" style={{ backgroundColor: getStatusColor(p.status) }} />
-                                                        {p.status}
-                                                    </div>
-                                                </td>
-                                                <td className="px-10 py-8 text-center">
-                                                    <motion.div
-                                                        whileHover={{ scale: 1.1, rotate: 2 }}
-                                                        className="inline-block relative group/qr"
-                                                    >
-                                                        <div className="absolute -inset-2 bg-amber-500 opacity-0 group-hover/qr:opacity-10 blur-xl transition-opacity rounded-2xl" />
-                                                        <div
-                                                            className="bg-white p-2.5 rounded-xl cursor-pointer shadow-2xl relative z-10"
-                                                            onClick={() => setSelectedParticipant(p)}
-                                                        >
-                                                            <QRCodeCanvas
-                                                                id={`qr-${p.participant_id}`}
-                                                                value={p.qrValue}
-                                                                size={56}
-                                                                level="H"
-                                                            />
-                                                        </div>
-                                                    </motion.div>
-                                                </td>
-                                                <td className="px-10 py-8">
-                                                    <div className="flex justify-end items-center gap-3">
-                                                        <button onClick={() => downloadQR(p.participant_id, p.participant_name)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-amber-500 hover:text-black transition-all rounded-xl text-white/20">
-                                                            <Download size={16} />
-                                                        </button>
-                                                        <button onClick={() => deleteParticipant(p.participant_id)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-red-500 transition-all rounded-xl text-white/20">
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </motion.tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </>
-                    )}
-                </motion.div>
+                                                <ScanLine size={12} className="text-amber-500" />
+                                                <span>SCAN</span>
+                                            </Link>
+
+                                            <button
+                                                onClick={() => setTablesModalEvent(evt)}
+                                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors border cursor-pointer ${
+                                                    evt.tablesCreated
+                                                        ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                                                        : 'bg-white/[0.03] hover:bg-amber-500/10 text-white/60 hover:text-amber-300 border-white/5'
+                                                }`}
+                                                title="Design schema and generate tables for this event"
+                                            >
+                                                <Database size={12} className={evt.tablesCreated ? "text-emerald-400" : "text-amber-500"} />
+                                                <span>TABLES</span>
+                                            </button>
+
+                                            <button
+                                                onClick={() => handleDuplicateEvent(evt)}
+                                                className="w-8 h-8 flex items-center justify-center bg-white/[0.03] hover:bg-white/[0.08] text-white/40 hover:text-white rounded-lg transition-colors border border-white/5 cursor-pointer"
+                                                title="Duplicate Event"
+                                            >
+                                                <Copy size={13} />
+                                            </button>
+
+                                            <button
+                                                onClick={() => setEditingEvent(evt)}
+                                                className="w-8 h-8 flex items-center justify-center bg-white/[0.03] hover:bg-white/[0.08] text-white/40 hover:text-white rounded-lg transition-colors border border-white/5 cursor-pointer"
+                                                title="Edit Event Details"
+                                            >
+                                                <Edit3 size={13} />
+                                            </button>
+
+                                            <button
+                                                onClick={() => setDeletingEvent(evt)}
+                                                className="w-8 h-8 flex items-center justify-center bg-white/[0.03] hover:bg-red-500/20 text-white/40 hover:text-red-400 rounded-lg transition-colors border border-white/5 cursor-pointer"
+                                                title="Delete Event"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
-
-            {/* ── CSV Import Modal ───────────────────────────────────────────────── */}
-            <AnimatePresence>
-                {showCsvModal && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-xl">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            className="bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] flex flex-col"
-                        >
-                            {/* Modal Header */}
-                            <div className="p-8 md:p-12 border-b border-white/5 flex justify-between items-end flex-shrink-0">
-                                <div>
-                                    <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Bulk Data Ingestion</p>
-                                    <h2 className="text-2xl md:text-3xl font-black text-white leading-none uppercase tracking-tighter">Import CSV.</h2>
-                                    <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest mt-2">
-                                        Expected columns: name, register_number, year, department, section, game, mobile, email
-                                    </p>
-                                </div>
-                                <button onClick={resetCsvModal} className="w-11 h-11 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5 flex-shrink-0">
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto p-8 md:p-12 space-y-8">
-                                {/* Drop Zone */}
-                                {!csvRows.length && !csvDone && (
-                                    <div
-                                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                                        onDragLeave={() => setIsDragging(false)}
-                                        onDrop={handleCsvDrop}
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className={`relative border-2 border-dashed rounded-[2rem] p-12 md:p-20 flex flex-col items-center justify-center text-center gap-6 cursor-pointer transition-all duration-300 ${isDragging
-                                            ? "border-amber-500/60 bg-amber-500/5"
-                                            : "border-white/10 hover:border-amber-500/30 hover:bg-white/[0.01]"
-                                            }`}
-                                    >
-                                        <input
-                                            ref={fileInputRef}
-                                            type="file"
-                                            accept=".csv"
-                                            className="hidden"
-                                            onChange={(e) => { if (e.target.files?.[0]) handleCsvFile(e.target.files[0]); }}
-                                        />
-                                        <div className={`w-20 h-20 rounded-[1.8rem] flex items-center justify-center transition-colors ${isDragging ? "bg-amber-500/20 text-amber-400" : "bg-white/[0.04] text-white/20"
-                                            }`}>
-                                            <Upload size={36} strokeWidth={1.5} />
-                                        </div>
-                                        <div>
-                                            <p className="text-white/60 font-black text-sm uppercase tracking-widest mb-2">
-                                                {isDragging ? "Release to upload" : "Drag & drop your CSV"}
-                                            </p>
-                                            <p className="text-white/20 text-[10px] uppercase tracking-[0.3em] font-bold">
-                                                or click to browse files
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-2 opacity-30">
-                                            <FileText size={12} className="text-amber-500" />
-                                            <span className="text-[9px] font-black uppercase tracking-widest text-white">.csv files only</span>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Template Download */}
-                                {!csvRows.length && !csvDone && (
-                                    <div className="flex items-center justify-between bg-white/[0.02] border border-white/5 rounded-2xl px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <Table2 size={16} className="text-amber-500" />
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Download template CSV</span>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                const template = "name,register_number,year,department,section,category,game,culturals,mobile,email\nJohn Doe,22CS001,2,CSE,A,Games,Cricket,,9876543210,john@example.com\nJane Doe,22CS002,2,CSE,B,Culturals,,Dance,9876543211,jane@example.com";
-                                                const blob = new Blob([template], { type: "text/csv" });
-                                                const url = URL.createObjectURL(blob);
-                                                const a = document.createElement("a");
-                                                a.href = url; a.download = "participants_template.csv"; a.click();
-                                                URL.revokeObjectURL(url);
-                                            }}
-                                            className="flex items-center gap-2 text-amber-500 hover:text-amber-400 transition-colors text-[10px] font-black uppercase tracking-widest"
-                                        >
-                                            <Download size={14} /> Template
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* Preview Table */}
-                                {csvRows.length > 0 && !csvDone && (
-                                    <div className="space-y-6">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <FileText size={16} className="text-amber-500" />
-                                                <span className="text-[11px] font-black uppercase tracking-widest text-white/60">{csvFileName}</span>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400/80 bg-emerald-400/10 px-3 py-1 rounded-full">
-                                                    {csvRows.filter(r => !r._error).length} valid
-                                                </span>
-                                                {csvRows.some(r => r._error) && (
-                                                    <span className="text-[9px] font-black uppercase tracking-widest text-red-400/80 bg-red-400/10 px-3 py-1 rounded-full">
-                                                        {csvRows.filter(r => r._error).length} errors
-                                                    </span>
-                                                )}
-                                                <button
-                                                    onClick={() => { setCsvRows([]); setCsvFileName(""); if (fileInputRef.current) fileInputRef.current.value = ""; }}
-                                                    className="text-[9px] font-black uppercase tracking-widest text-white/20 hover:text-red-400 transition-colors"
-                                                >
-                                                    Clear
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="overflow-x-auto rounded-2xl border border-white/5 max-h-72">
-                                            <table className="w-full text-left border-collapse text-[10px] font-black uppercase tracking-widest">
-                                                <thead className="sticky top-0">
-                                                    <tr className="bg-[#111] border-b border-white/5 text-white/20">
-                                                        <th className="px-4 py-3">#</th>
-                                                        <th className="px-4 py-3">Name</th>
-                                                        <th className="px-4 py-3">Reg No.</th>
-                                                        <th className="px-4 py-3">Year</th>
-                                                        <th className="px-4 py-3">Dept</th>
-                                                        <th className="px-4 py-3">Sec</th>
-                                                        <th className="px-4 py-3">Category</th>
-                                                        <th className="px-4 py-3">Game</th>
-                                                        <th className="px-4 py-3">Culturals</th>
-                                                        <th className="px-4 py-3">Email</th>
-                                                        <th className="px-4 py-3">Mobile</th>
-                                                        <th className="px-4 py-3">Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-white/[0.03]">
-                                                    {csvRows.map((row, i) => (
-                                                        <tr key={i} className={row._error ? "bg-red-500/5" : "hover:bg-white/[0.01]"}>
-                                                            <td className="px-4 py-3 text-white/20">{i + 1}</td>
-                                                            <td className="px-4 py-3 text-white">{row.name || <span className="text-red-400">—</span>}</td>
-                                                            <td className="px-4 py-3 text-amber-500/70">{row.register_number || <span className="text-red-400">—</span>}</td>
-                                                            <td className="px-4 py-3 text-white/50">{row.year}</td>
-                                                            <td className="px-4 py-3 text-white/50">{row.department}</td>
-                                                            <td className="px-4 py-3 text-white/50">{row.section}</td>
-                                                            <td className="px-4 py-3 text-white/50">{row.category}</td>
-                                                            <td className="px-4 py-3 text-white/50">{row.game}</td>
-                                                            <td className="px-4 py-3 text-white/50">{row.culturals}</td>
-                                                            <td className="px-4 py-3 text-white/40">{row.email}</td>
-                                                            <td className="px-4 py-3 text-white/40">{row.mobile}</td>
-                                                            <td className="px-4 py-3">
-                                                                {row._error
-                                                                    ? <span className="text-red-400 flex items-center gap-1"><AlertTriangle size={10} /> Error</span>
-                                                                    : <span className="text-emerald-400">✓ OK</span>
-                                                                }
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Progress */}
-                                {csvImporting && (
-                                    <div className="space-y-4">
-                                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                                            <span className="text-white/40">Importing records...</span>
-                                            <span className="text-amber-500">{csvProgress}%</span>
-                                        </div>
-                                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                                            <motion.div
-                                                animate={{ width: `${csvProgress}%` }}
-                                                className="h-full bg-amber-500 rounded-full"
-                                                transition={{ ease: "linear" }}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Done State */}
-                                {csvDone && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        className="flex flex-col items-center gap-6 py-8 text-center"
-                                    >
-                                        <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                                            <CheckCircle2 size={32} strokeWidth={1.5} />
-                                        </div>
-                                        <div>
-                                            <p className="text-emerald-400 font-black text-sm uppercase tracking-widest">
-                                                Import Complete
-                                            </p>
-                                            <p className="text-white/30 text-[10px] uppercase tracking-widest mt-2">
-                                                {csvRows.filter(r => !r._error).length - csvErrors.length} of {csvRows.filter(r => !r._error).length} records added successfully.
-                                            </p>
-                                        </div>
-                                        {csvErrors.length > 0 && (
-                                            <div className="w-full bg-red-500/5 border border-red-500/10 rounded-2xl p-6 text-left space-y-2">
-                                                <p className="text-red-400 text-[10px] font-black uppercase tracking-widest mb-3">Failed rows:</p>
-                                                {csvErrors.map((e, i) => (
-                                                    <p key={i} className="text-red-400/60 text-[9px] font-mono">{e}</p>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </motion.div>
-                                )}
-                            </div>
-
-                            {/* Footer Actions */}
-                            <div className="p-8 md:p-12 border-t border-white/5 flex gap-4 flex-shrink-0">
-                                {!csvDone ? (
-                                    <>
-                                        <button
-                                            onClick={resetCsvModal}
-                                            className="flex-1 py-5 bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white/30 hover:text-white transition-all"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            onClick={handleBulkImport}
-                                            disabled={csvImporting || csvRows.filter(r => !r._error).length === 0}
-                                            className="flex-1 flex items-center justify-center gap-3 bg-white text-black py-5 rounded-2xl font-black uppercase tracking-[0.3em] text-[10px] hover:bg-amber-500 transition-all shadow-2xl disabled:opacity-40 active:scale-[0.98]"
-                                        >
-                                            {csvImporting
-                                                ? <><Loader2 size={18} className="animate-spin" /> Importing...</>
-                                                : <><Upload size={16} strokeWidth={3} /> Import {csvRows.filter(r => !r._error).length} Records</>
-                                            }
-                                        </button>
-                                    </>
-                                ) : (
-                                    <button
-                                        onClick={resetCsvModal}
-                                        className="w-full py-5 bg-white text-black rounded-2xl font-black uppercase tracking-[0.3em] text-[10px] hover:bg-amber-500 transition-all shadow-2xl active:scale-[0.98]"
-                                    >
-                                        Done
-                                    </button>
-                                )}
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            {/* Modals & Overlays */}
-            <AddParticipantModal
-                isOpen={showAddModal}
-                onClose={() => setShowAddModal(false)}
-                onAdd={handleAddParticipant}
+            {/* CREATE EVENT MODAL */}
+            <EventFormModal
+                isOpen={showCreateModal}
+                title="Create New Event"
+                subtitle="Initialize a new event in the festival catalogue"
+                initialData={{
+                    title: "",
+                    code: "",
+                    category: "Technical",
+                    description: "",
+                    venue: "",
+                    date: "2026-03-15",
+                    time: "10:00 AM - 04:00 PM",
+                    status: "active",
+                    maxCapacity: 200,
+                    colorTheme: "#f59e0b",
+                }}
+                isSubmitting={isSubmitting}
+                onClose={() => setShowCreateModal(false)}
+                onSubmit={handleCreateEvent}
             />
 
-            {/* Big Identity View Overlay */}
+            {/* EDIT EVENT MODAL */}
+            {editingEvent && (
+                <EventFormModal
+                    isOpen={true}
+                    title="Update Event"
+                    subtitle={`Modifying configuration for ${editingEvent.code}`}
+                    initialData={editingEvent}
+                    isSubmitting={isSubmitting}
+                    onClose={() => setEditingEvent(null)}
+                    onSubmit={handleUpdateEvent}
+                />
+            )}
+
+            {/* DELETE CONFIRMATION MODAL */}
             <AnimatePresence>
-                {selectedParticipant && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-3xl" onClick={() => setSelectedParticipant(null)}>
-                        <motion.div initial={{ opacity: 0, scale: 0.9, y: 30 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 30 }} className="bg-white rounded-[3rem] w-full max-w-md max-h-[90vh] overflow-y-auto shadow-[0_0_100px_rgba(0,0,0,1)] relative scrollbar-hide" onClick={e => e.stopPropagation()}>
-                            <div className="absolute top-0 right-10 h-16 w-1 bg-amber-500" />
+                {deletingEvent && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-[#0e0e11] border border-red-500/20 rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-6"
+                        >
+                            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
+                                <AlertCircle size={24} />
+                            </div>
 
-                            <div className="p-8 md:p-12">
-                                <div className="flex justify-between items-start mb-16">
-                                    <div>
-                                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-3">System Identity Passport</p>
-                                        <h3 className="text-black text-4xl font-black leading-none tracking-tighter uppercase whitespace-pre-wrap">{selectedParticipant.name}</h3>
-                                        <p className="text-black/30 font-black uppercase text-[10px] mt-4 tracking-[0.2em]">{selectedParticipant.registerNumber}</p>
-                                    </div>
-                                    <X onClick={() => setSelectedParticipant(null)} className="text-black/10 hover:text-black cursor-pointer transition-colors flex-shrink-0" size={24} />
-                                </div>
+                            <div>
+                                <h3 className="text-white font-black text-lg uppercase tracking-tight mb-2">Delete Event?</h3>
+                                <p className="text-white/50 text-xs leading-relaxed">
+                                    Are you sure you want to delete <strong className="text-white">{deletingEvent.title}</strong> ({deletingEvent.code})?
+                                    Existing participants registered for this event will remain in the database.
+                                </p>
+                            </div>
 
-                                <div className="bg-[#f0f0f0] p-10 rounded-[2.5rem] mb-12 flex flex-col items-center justify-center border border-black/5 shadow-inner">
-                                    <QRCodeCanvas id={`qr-big-${selectedParticipant.id}`} value={selectedParticipant.qrValue} size={240} level="H" />
-                                    <div className="mt-10 space-y-2 flex flex-col items-center">
-                                        <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                                        <p className="text-black font-mono text-[11px] font-black tracking-widest bg-black/5 px-6 py-2 rounded-full uppercase whitespace-nowrap">TAG: {(selectedParticipant.participant_id || selectedParticipant.id || "").replace(/splash/gi, "Vishaka")}</p>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-8 mb-16 px-2">
-                                    <div>
-                                        <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Details</p>
-                                        <p className="text-black font-black text-xs tracking-widest uppercase">{selectedParticipant.department} - Yr {selectedParticipant.year} (Sec {selectedParticipant.section})</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-[9px] font-black text-black/20 uppercase tracking-widest mb-1">Authorization</p>
-                                        <p className="font-black text-xs tracking-widest uppercase italic" style={{ color: getStatusColor(selectedParticipant.status) }}>
-                                            {selectedParticipant.status.replace('-', '_')}
-                                        </p>
-                                    </div>
-                                </div>
-
+                            <div className="flex gap-3">
                                 <button
-                                    onClick={() => downloadQR(`qr-big-${selectedParticipant.id}`, selectedParticipant.id)}
-                                    className="w-full bg-black text-white py-6 rounded-2xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 hover:text-black transition-all flex items-center justify-center gap-3 shadow-2xl"
+                                    onClick={() => setDeletingEvent(null)}
+                                    className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs font-bold uppercase tracking-wider"
                                 >
-                                    <Download size={18} /> DOWNLOAD_AS_IMAGE
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleDeleteEvent}
+                                    disabled={isSubmitting}
+                                    className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white text-xs font-black uppercase tracking-wider disabled:opacity-50"
+                                >
+                                    {isSubmitting ? "Deleting..." : "Confirm Delete"}
                                 </button>
                             </div>
                         </motion.div>
@@ -1049,127 +728,284 @@ export default function AdminPage() {
                 )}
             </AnimatePresence>
 
+            {/* EVENT DEDICATED TABLES MODAL */}
+            {tablesModalEvent && (
+                <EventTablesModal
+                    isOpen={true}
+                    event={tablesModalEvent}
+                    onClose={() => setTablesModalEvent(null)}
+                    onTablesCreated={(updatedEvt) => {
+                        setEvents(prev => prev.map(e => e.id === updatedEvt.id ? updatedEvt : e));
+                        setTablesModalEvent(updatedEvt);
+                    }}
+                />
+            )}
         </div>
     );
 }
 
-interface AddParticipantModalProps {
+// ── Reusable Event Form Modal (Create & Edit) ──────────────────────────────
+interface EventFormModalProps {
     isOpen: boolean;
+    title: string;
+    subtitle: string;
+    initialData: Partial<EventItem>;
+    isSubmitting: boolean;
     onClose: () => void;
-    onAdd: (data: any) => Promise<void>;
+    onSubmit: (data: any, autoCreateTables?: boolean) => Promise<void>;
 }
 
-function AddParticipantModal({ isOpen, onClose, onAdd }: AddParticipantModalProps) {
+function EventFormModal({ isOpen, title, subtitle, initialData, isSubmitting, onClose, onSubmit }: EventFormModalProps) {
+    const isNew = !initialData.id;
     const [formData, setFormData] = useState({
-        name: "",
-        registerNumber: "",
-        year: "",
-        department: "",
-        section: "",
-        game: "",
-        email: "",
-        mobile: "",
-        category: "Games",
-        culturalInterest: "",
-        event: "Vishaka 2026",
+        title: initialData.title || "",
+        code: initialData.code || "",
+        category: initialData.category || "Technical",
+        description: initialData.description || "",
+        venue: initialData.venue || "",
+        date: initialData.date || "2026-03-15",
+        time: initialData.time || "10:00 AM - 04:00 PM",
+        status: initialData.status || "active",
+        maxCapacity: initialData.maxCapacity || 200,
+        colorTheme: initialData.colorTheme || "#f59e0b",
     });
-    const [isSaving, setIsSaving] = useState(false);
+    const [autoCreateTables, setAutoCreateTables] = useState(true);
 
     if (!isOpen) return null;
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSaving(true);
-        try {
-            await onAdd(formData);
-            setFormData({
-                name: "",
-                registerNumber: "",
-                year: "",
-                department: "",
-                section: "",
-                game: "",
-                email: "",
-                mobile: "",
-                category: "Games",
-                culturalInterest: "",
-                event: "Vishaka 2026",
-            });
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setIsSaving(false);
-        }
+    // Auto slugify code if empty while typing title
+    const handleTitleChange = (val: string) => {
+        setFormData(prev => {
+            const updates: any = { title: val };
+            if (!initialData.code && (!prev.code || prev.code === prev.title.toUpperCase().replace(/[^A-Z0-9]+/g, '-'))) {
+                updates.code = val.toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 16);
+            }
+            return { ...prev, ...updates };
+        });
     };
 
+    const tableNames = getEventTableNames(formData.title || "event");
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        await onSubmit(formData, autoCreateTables);
+    };
+
+    const THEME_COLORS = [
+        { name: "Amber", hex: "#f59e0b" },
+        { name: "Cyan", hex: "#06b6d4" },
+        { name: "Emerald", hex: "#10b981" },
+        { name: "Pink", hex: "#ec4899" },
+        { name: "Purple", hex: "#a855f7" },
+        { name: "Rose", hex: "#f43f5e" },
+    ];
+
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-xl">
-            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] flex flex-col">
-                <div className="p-8 md:p-14 border-b border-white/5 flex justify-between items-end flex-shrink-0">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl">
+            <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-[#0d0d10] border border-white/10 rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+            >
+                {/* Header */}
+                <div className="p-6 md:p-8 border-b border-white/5 flex justify-between items-center flex-shrink-0">
                     <div>
-                        <p className="text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase mb-2">Initialize System Record</p>
-                        <h2 className="text-3xl font-black text-white leading-none uppercase tracking-tighter">Registration.</h2>
+                        <p className="text-[10px] font-black tracking-[0.3em] text-amber-500 uppercase mb-1">{subtitle}</p>
+                        <h2 className="text-2xl font-black text-white uppercase tracking-tight">{title}</h2>
                     </div>
-                    <button type="button" onClick={onClose} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/10 transition-colors text-white/50 hover:text-white border border-white/5 flex-shrink-0"><X size={24} /></button>
+                    <button onClick={onClose} className="w-10 h-10 flex items-center justify-center bg-white/5 rounded-xl text-white/50 hover:text-white">
+                        <X size={18} />
+                    </button>
                 </div>
-                <div className="flex-1 overflow-y-auto p-8 md:p-14">
-                    <form onSubmit={handleSubmit} className="space-y-10">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="space-y-4">
-                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Full Identity</label>
-                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="NAME" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} />
-                            </div>
-                            <div className="space-y-4">
-                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Register Number</label>
-                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="REGISTER NUMBER" value={formData.registerNumber} onChange={(e) => setFormData(prev => ({ ...prev, registerNumber: e.target.value }))} />
-                            </div>
-                            <div className="space-y-4">
-                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Year</label>
-                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="YEAR" value={formData.year} onChange={(e) => setFormData(prev => ({ ...prev, year: e.target.value }))} />
-                            </div>
-                            <div className="space-y-4">
-                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Department</label>
-                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="DEPARTMENT" value={formData.department} onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))} />
-                            </div>
-                            <div className="space-y-4">
-                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Section</label>
-                                <input required className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="SECTION" value={formData.section} onChange={(e) => setFormData(prev => ({ ...prev, section: e.target.value }))} />
+
+                {/* Form Body */}
+                <div className="p-6 md:p-8 flex-1 overflow-y-auto">
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="md:col-span-2">
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Event Title *</label>
+                                <input
+                                    required
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white placeholder:text-white/20"
+                                    placeholder="e.g. AI Prompt Engineering Challenge"
+                                    value={formData.title}
+                                    onChange={(e) => handleTitleChange(e.target.value)}
+                                />
                             </div>
 
-                            <div className="space-y-4">
-                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Email (Optional)</label>
-                                <input type="email" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="EMAIL" value={formData.email} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} />
-                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em] mt-4">Mobile (Optional)</label>
-                                <input type="tel" className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="MOBILE" value={formData.mobile} onChange={(e) => setFormData(prev => ({ ...prev, mobile: e.target.value }))} />
+                            <div>
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Event Code / Tag *</label>
+                                <input
+                                    required
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white uppercase placeholder:text-white/20"
+                                    placeholder="e.g. PROMPT-26"
+                                    value={formData.code}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase().replace(/\s+/g, '-') }))}
+                                />
                             </div>
-                            <div className="space-y-4">
-                                <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Category</label>
-                                <select className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" value={formData.category} onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}>
-                                    <option value="Games">Games</option>
-                                    <option value="Culturals">Culturals</option>
-                                    <option value="Event & Dj Attendee">Event & Dj Attendee</option>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Category *</label>
+                                <select
+                                    className="w-full bg-[#121215] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.category}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value as any }))}
+                                >
+                                    <option value="Technical">Technical</option>
+                                    <option value="Cultural">Cultural</option>
+                                    <option value="Symposium">Symposium</option>
+                                    <option value="Gaming">Gaming / Esports</option>
+                                    <option value="Sports">Sports</option>
+                                    <option value="Workshop">Workshop</option>
+                                    <option value="General">General</option>
                                 </select>
                             </div>
-                            {formData.category === "Games" && (
-                                <div className="space-y-4">
-                                    <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Game</label>
-                                    <input className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="GAME" value={formData.game} onChange={(e) => setFormData(prev => ({ ...prev, game: e.target.value }))} />
+
+                            <div>
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Venue / Location *</label>
+                                <input
+                                    required
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white placeholder:text-white/20"
+                                    placeholder="e.g. Computing Lab 4"
+                                    value={formData.venue}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, venue: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Max Capacity</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.maxCapacity}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, maxCapacity: parseInt(e.target.value) || 200 }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Date *</label>
+                                <input
+                                    type="date"
+                                    required
+                                    className="w-full bg-[#121215] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.date}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Time Schedule</label>
+                                <input
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white placeholder:text-white/20"
+                                    placeholder="e.g. 10:00 AM - 04:00 PM"
+                                    value={formData.time}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, time: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Status</label>
+                                <select
+                                    className="w-full bg-[#121215] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.status}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                                >
+                                    <option value="active">Active (Registration & Check-in Open)</option>
+                                    <option value="upcoming">Upcoming</option>
+                                    <option value="completed">Completed</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Color Accent</label>
+                                <div className="flex items-center gap-2 pt-1">
+                                    {THEME_COLORS.map(c => (
+                                        <button
+                                            key={c.hex}
+                                            type="button"
+                                            onClick={() => setFormData(prev => ({ ...prev, colorTheme: c.hex }))}
+                                            className={`w-7 h-7 rounded-full transition-transform flex items-center justify-center ${
+                                                formData.colorTheme === c.hex ? 'scale-125 ring-2 ring-white' : 'opacity-70 hover:opacity-100'
+                                            }`}
+                                            style={{ backgroundColor: c.hex }}
+                                            title={c.name}
+                                        >
+                                            {formData.colorTheme === c.hex && <Check size={12} className="text-black" />}
+                                        </button>
+                                    ))}
                                 </div>
-                            )}
-                            {formData.category === "Culturals" && (
-                                <div className="space-y-4">
-                                    <label className="block text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Cultural Interest</label>
-                                    <input className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-5 px-6 outline-none focus:border-amber-500/30 text-xs font-black tracking-widest text-white" placeholder="Cultural Interest" value={formData.culturalInterest} onChange={(e) => setFormData(prev => ({ ...prev, culturalInterest: e.target.value }))} />
+                            </div>
+
+                            <div className="md:col-span-2">
+                                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Description / Instructions</label>
+                                <textarea
+                                    rows={2}
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white placeholder:text-white/20 resize-none"
+                                    placeholder="Brief overview of event rules, eligibility, or track details..."
+                                    value={formData.description}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                                />
+                            </div>
+
+                            {/* Option: Create Dedicated Database Tables */}
+                            {isNew && (
+                                <div className="md:col-span-2 bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 space-y-3">
+                                    <label className="flex items-start gap-3 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={autoCreateTables}
+                                            onChange={(e) => setAutoCreateTables(e.target.checked)}
+                                            className="mt-1 accent-amber-500 w-4 h-4 rounded cursor-pointer"
+                                        />
+                                        <div className="space-y-1">
+                                            <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                                                <Database size={13} /> Customize Schema & Generate Dedicated Tables
+                                            </span>
+                                            <p className="text-[10px] text-white/50 leading-relaxed">
+                                                Opens the interactive Schema Designer after creation where you define custom column names, data types, and default values to generate the PostgreSQL script.
+                                            </p>
+                                        </div>
+                                    </label>
+
+                                    {autoCreateTables && formData.title && (
+                                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 font-mono text-[10px] space-y-1">
+                                            <div className="text-emerald-400 flex items-center gap-1.5 truncate">
+                                                <Check size={12} className="flex-shrink-0" />
+                                                <span className="text-white/40">Participants Table:</span>
+                                                <span className="text-white font-bold truncate">{tableNames.participantsTable}</span>
+                                            </div>
+                                            <div className="text-blue-400 flex items-center gap-1.5 truncate">
+                                                <Check size={12} className="flex-shrink-0" />
+                                                <span className="text-white/40">Check-In Logs Table:</span>
+                                                <span className="text-white font-bold truncate">{tableNames.checkInTable}</span>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
-                        <button type="submit" disabled={isSaving} className="w-full bg-white text-black py-6 rounded-xl font-black uppercase tracking-[0.3em] text-[11px] hover:bg-amber-500 transition-all flex items-center justify-center gap-4 shadow-3xl disabled:opacity-50">
-                            {isSaving ? <Loader2 className="animate-spin" size={20} /> : <>FINALIZE ENTRANCE <ChevronRight size={18} strokeWidth={3} /></>}
-                        </button>
+
+                        <div className="pt-4 border-t border-white/5 flex gap-3">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="flex-1 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 text-xs font-bold uppercase tracking-wider"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isSubmitting}
+                                className="flex-1 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider disabled:opacity-50 transition-colors shadow-lg shadow-amber-500/20"
+                            >
+                                {isSubmitting ? "Saving & Provisioning..." : "Save Event"}
+                            </button>
+                        </div>
                     </form>
                 </div>
             </motion.div>
         </div>
     );
 }
-
