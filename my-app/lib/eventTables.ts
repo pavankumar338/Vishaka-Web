@@ -204,6 +204,49 @@ export async function checkTableExists(tableName: string): Promise<boolean> {
 }
 
 /**
+ * Resiliently inserts participant records into a Supabase table.
+ * If the target table schema is missing optional columns (e.g. cultural_interest),
+ * it detects the missing column from PostgREST error (PGRST204), prunes it from the payload,
+ * and retries automatically.
+ */
+export async function insertParticipantsResiliently(
+  tableName: string,
+  rows: any[]
+): Promise<{ success: boolean; error: any; prunedColumns?: string[] }> {
+  if (!rows || !rows.length) return { success: true, error: null };
+
+  let toInsert = rows.map(r => ({ ...r }));
+  const knownMissing = new Set<string>();
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const cleanedRows = toInsert.map(r => {
+      const copy = { ...r };
+      knownMissing.forEach(k => delete copy[k]);
+      return copy;
+    });
+
+    const { error } = await supabase.from(tableName).insert(cleanedRows);
+    if (!error) {
+      return { success: true, error: null, prunedColumns: Array.from(knownMissing) };
+    }
+
+    // PostgREST PGRST204: Could not find the '<column>' column of '<table>' in the schema cache
+    if (error.code === 'PGRST204') {
+      const match = error.message?.match(/Could not find the '([^']+)' column/i);
+      if (match && match[1]) {
+        console.warn(`Column '${match[1]}' does not exist in '${tableName}', pruning and retrying...`);
+        knownMissing.add(match[1]);
+        continue;
+      }
+    }
+
+    return { success: false, error };
+  }
+
+  return { success: false, error: new Error('Exceeded maximum retry attempts for schema mismatch') };
+}
+
+/**
  * Attempts to automatically create event tables via Supabase RPC or API endpoint.
  */
 export async function provisionEventTables(eventName: string, customSQL?: string): Promise<{
