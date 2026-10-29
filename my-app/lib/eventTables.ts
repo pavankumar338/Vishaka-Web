@@ -60,7 +60,7 @@ export const DEFAULT_CHECKIN_COLUMNS: SchemaColumn[] = [
  */
 export function sanitizeEventTableName(eventName: string): string {
   if (!eventName) return "event_default";
-  
+
   let slug = eventName
     .toLowerCase()
     .trim()
@@ -212,13 +212,13 @@ export async function checkTableExists(tableName: string): Promise<boolean> {
 export async function insertParticipantsResiliently(
   tableName: string,
   rows: any[]
-): Promise<{ success: boolean; error: any; prunedColumns?: string[] }> {
-  if (!rows || !rows.length) return { success: true, error: null };
+): Promise<{ success: boolean; error: any; prunedColumns?: string[]; insertedRows?: any[] }> {
+  if (!rows || !rows.length) return { success: true, error: null, insertedRows: [] };
 
   let toInsert = rows.map(r => ({ ...r }));
   const knownMissing = new Set<string>();
 
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const cleanedRows = toInsert.map(r => {
       const copy = { ...r };
       knownMissing.forEach(k => delete copy[k]);
@@ -227,10 +227,10 @@ export async function insertParticipantsResiliently(
 
     const { error } = await supabase.from(tableName).insert(cleanedRows);
     if (!error) {
-      return { success: true, error: null, prunedColumns: Array.from(knownMissing) };
+      return { success: true, error: null, prunedColumns: Array.from(knownMissing), insertedRows: cleanedRows };
     }
 
-    // PostgREST PGRST204: Could not find the '<column>' column of '<table>' in the schema cache
+    // 1. PostgREST PGRST204: Could not find the '<column>' column of '<table>' in the schema cache
     if (error.code === 'PGRST204') {
       const match = error.message?.match(/Could not find the '([^']+)' column/i);
       if (match && match[1]) {
@@ -240,10 +240,25 @@ export async function insertParticipantsResiliently(
       }
     }
 
+    // 2. PostgreSQL 23505: Duplicate key / unique constraint violation
+    if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
+      console.warn(`Duplicate key violation in '${tableName}', regenerating unique IDs and retrying...`);
+      toInsert = toInsert.map(r => {
+        const randSuffix = Math.floor(1000 + Math.random() * 9000).toString();
+        const newId = `${r.participant_id || r.id}-${randSuffix}`;
+        return {
+          ...r,
+          id: newId,
+          participant_id: newId
+        };
+      });
+      continue;
+    }
+
     return { success: false, error };
   }
 
-  return { success: false, error: new Error('Exceeded maximum retry attempts for schema mismatch') };
+  return { success: false, error: new Error('Exceeded maximum retry attempts for schema mismatch or duplicate keys') };
 }
 
 /**
@@ -348,7 +363,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
         candidateTables.push(getEventTableNames(e.title));
       }
     }
-  } catch {}
+  } catch { }
 
   // Known fallback candidates
   candidateTables.push({ participantsTable: 'participants_ignite2k26', checkInTable: 'check_in_logs_ignite2k26' });
@@ -374,7 +389,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
             .eq('participant_id', item.participant_id || cleanId)
             .limit(1);
           if (logData && logData.length > 0) isCheckedIn = true;
-        } catch {}
+        } catch { }
 
         return {
           participant: item,
@@ -383,7 +398,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
           isCheckedIn,
         };
       }
-    } catch {}
+    } catch { }
   }
 
   // 3. Fallback to localStorage in browser
@@ -393,7 +408,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
         const key = localStorage.key(i);
         if (key && key.startsWith('local_participants_')) {
           const items = JSON.parse(localStorage.getItem(key) || '[]');
-          const match = items.find((p: any) => 
+          const match = items.find((p: any) =>
             p.participant_id === cleanId || p.participant_id === vishakaVariant || p.id === cleanId
           );
           if (match) {
@@ -406,7 +421,7 @@ export async function findParticipantAcrossTables(id: string): Promise<{
           }
         }
       }
-    } catch {}
+    } catch { }
   }
 
   return { participant: null, sourceTable: null, checkInTable: null, isCheckedIn: false };
