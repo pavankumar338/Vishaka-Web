@@ -13,11 +13,14 @@ import {
     LogIn,
     LogOut,
     ChevronRight,
+    Edit3,
+    X,
+    Check,
 } from "lucide-react";
 import { Participant } from "@/lib/types";
 import { motion, AnimatePresence, Variants } from "framer-motion";
 import { supabase } from "@/lib/supabase";
-import { findParticipantAcrossTables, checkTableExists } from "@/lib/eventTables";
+import { findParticipantAcrossTables, checkTableExists, getEventTableNames } from "@/lib/eventTables";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -30,6 +33,7 @@ export default function QRScannerPage() {
     const [error, setError] = useState<string | null>(null);
     const [isCameraStarted, setIsCameraStarted] = useState(false);
     const [showToast, setShowToast] = useState(false);
+    const [showEditModal, setShowEditModal] = useState(false);
     const [isAdminRole, setIsAdminRole] = useState(false);
     const [activeSourceTable, setActiveSourceTable] = useState<string | null>(null);
     const [activeCheckInTable, setActiveCheckInTable] = useState<string | null>(null);
@@ -233,11 +237,23 @@ export default function QRScannerPage() {
                 }
             }
 
+            // If participant is marked checked-in in DB or memory, ensure todayLog is populated
+            if (!todayLog && (data.status === 'checked-in' || isCheckedIn)) {
+                todayLog = {
+                    id: "LOGGED",
+                    participant_id: pId,
+                    participant_name: data.participant_name || data.name,
+                    logged_at: data.updated_at || data.created_at || new Date().toISOString(),
+                    status: "checked-in"
+                };
+            }
+
             if (todayLog) {
                 setLastAction(todayLog);
             }
 
             // Step 3: Set participant state (guaranteed Vishaka ID)
+            const currentStatus = (todayLog || isCheckedIn || data.status === 'checked-in') ? 'checked-in' : (data.status || 'registered');
             setParticipant({
                 id: pId,
                 participant_id: pId,
@@ -249,7 +265,7 @@ export default function QRScannerPage() {
                 section: data.section || "N/A",
                 category: data.category || "",
                 culturalInterest: data.cultural_interest || data.culturals || "",
-                status: data.status,
+                status: currentStatus,
                 event: (data.event || "Vishaka 2026").replace(/splash/gi, "Vishaka"),
                 game: data.game || "",
                 email: data.email || "",
@@ -272,31 +288,28 @@ export default function QRScannerPage() {
             setIsUpdating(true);
             setError(null);
 
-            // Re-fetch current participant status from DB before writing
-            const splashVariant = participant.id.replace(/vishaka/gi, "Splash");
-            let { data: current, error: fetchErr } = await supabase
-                .from("participants")
-                .select("status")
-                .or(`participant_id.eq.${participant.id},participant_id.eq.${splashVariant}`)
-                .maybeSingle();
-
-            if (!current && !fetchErr) {
-                const fallback = await supabase
-                    .from("participants")
-                    .select("status")
-                    .or(`id.eq.${participant.id},id.eq.${splashVariant}`)
-                    .maybeSingle();
-                if (fallback.data) current = fallback.data;
-            }
-
-            if (fetchErr || !current) {
-                throw new Error("FETCH_ERROR: COULD NOT VERIFY PARTICIPANT STATUS.");
-            }
-
             const logTimestamp = new Date().toISOString();
             const newStatus = "checked-in";
 
-            // Generate UUID for log table in case it lacks a default generator
+            // Resolve target participant table and check-in log table
+            let targetSourceTable = (activeSourceTable && activeSourceTable !== 'localStorage') ? activeSourceTable : null;
+            let targetCheckInTable = activeCheckInTable;
+
+            if (!targetSourceTable && participant.event) {
+                const { participantsTable, checkInTable } = getEventTableNames(participant.event);
+                targetSourceTable = participantsTable;
+                if (!targetCheckInTable) targetCheckInTable = checkInTable;
+            }
+
+            // Fallback candidates
+            if (!targetSourceTable) {
+                targetSourceTable = "participants_ignite2k26";
+            }
+            if (!targetCheckInTable) {
+                targetCheckInTable = targetSourceTable.replace(/^participants_?/, 'check_in_logs_');
+            }
+
+            // Generate UUID for log item
             const logId = typeof crypto !== "undefined" && crypto.randomUUID
                 ? crypto.randomUUID()
                 : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -305,47 +318,67 @@ export default function QRScannerPage() {
                     return v.toString(16);
                 });
 
-            // 1. Insert check-in log entry
             let newLogItem: any = {
                 id: logId,
                 participant_id: participant.id,
                 participant_name: participant.name,
                 logged_at: logTimestamp,
+                status: newStatus
             };
 
-            const targetCheckInTable = activeCheckInTable || "check_in_logs";
-            const targetSourceTable = (activeSourceTable && activeSourceTable !== 'localStorage') ? activeSourceTable : "participants";
-
-            const canLog = await checkTableExists(targetCheckInTable);
-            if (canLog) {
+            // 1. Insert check-in log entry in dedicated log table
+            if (targetCheckInTable) {
                 try {
-                    const logInsertRes = await supabase
-                        .from(targetCheckInTable)
-                        .insert([{
-                            participant_id: participant.id,
-                            logged_at: logTimestamp,
-                            scanner_id: 'admin_scanner',
-                            status: newStatus
-                        }])
-                        .select();
-                    if (logInsertRes.data && logInsertRes.data.length > 0) {
-                        newLogItem = logInsertRes.data[0];
+                    const canLog = await checkTableExists(targetCheckInTable);
+                    if (canLog) {
+                        const logInsertRes = await supabase
+                            .from(targetCheckInTable)
+                            .insert([{
+                                participant_id: participant.id,
+                                logged_at: logTimestamp,
+                                scanner_id: 'admin_scanner',
+                                status: newStatus
+                            }])
+                            .select();
+                        if (logInsertRes.data && logInsertRes.data.length > 0) {
+                            newLogItem = logInsertRes.data[0];
+                        }
                     }
                 } catch (lErr) {
                     console.warn("Log write warning:", lErr);
                 }
             }
 
-            // Update participant status in DB if table exists
-            const canUpdateTable = await checkTableExists(targetSourceTable);
-            if (canUpdateTable) {
-                await supabase
-                    .from(targetSourceTable)
-                    .update({ status: newStatus })
-                    .or(`participant_id.eq.${participant.id},id.eq.${participant.id}`);
+            // 2. Update participant status in DB source table
+            if (targetSourceTable) {
+                try {
+                    const canUpdateTable = await checkTableExists(targetSourceTable);
+                    if (canUpdateTable) {
+                        const splashVariant = participant.id.replace(/vishaka/gi, "Splash");
+                        await supabase
+                            .from(targetSourceTable)
+                            .update({ status: newStatus, updated_at: logTimestamp })
+                            .or(`participant_id.eq.${participant.id},id.eq.${participant.id},participant_id.eq.${splashVariant}`);
+                    }
+                } catch (upErr) {
+                    console.warn("Source table update warning:", upErr);
+                }
             }
 
-            // Update localStorage
+            // 3. Update unified participants table if it exists
+            try {
+                const hasUnified = await checkTableExists('participants');
+                if (hasUnified) {
+                    await supabase
+                        .from('participants')
+                        .update({ status: newStatus, updated_at: logTimestamp })
+                        .or(`participant_id.eq.${participant.id},id.eq.${participant.id}`);
+                }
+            } catch (uErr) {
+                console.warn("Unified update warning:", uErr);
+            }
+
+            // 4. Update localStorage so local caches stay in sync
             if (typeof window !== 'undefined') {
                 try {
                     for (let i = 0; i < localStorage.length; i++) {
@@ -363,11 +396,11 @@ export default function QRScannerPage() {
                 } catch (e) {}
             }
 
-            // Update local participant state status
-            setParticipant({
-                ...participant,
+            // 5. Update local participant state status
+            setParticipant(prev => prev ? {
+                ...prev,
                 status: newStatus,
-            });
+            } : null);
 
             setLastAction(newLogItem);
             setShowToast(true);
@@ -384,6 +417,70 @@ export default function QRScannerPage() {
             setIsUpdating(false);
         }
     };
+
+    
+    const handleSaveParticipantEdit = async (updated: Partial<Participant>) => {
+        if (!participant) return;
+        try {
+            const pId = participant.participant_id || participant.id;
+            const splashVariant = pId.replace(/vishaka/gi, "Splash");
+            const targetTable = (activeSourceTable && activeSourceTable !== 'localStorage') ? activeSourceTable : "participants_ignite2k26";
+
+            const updatePayload: any = {
+                participant_name: updated.name || participant.name,
+                register_number: updated.registerNumber || participant.registerNumber,
+                year: updated.year || participant.year,
+                department: updated.department || participant.department,
+                section: updated.section || participant.section,
+                game: updated.game !== undefined ? updated.game : participant.game,
+                updated_at: new Date().toISOString()
+            };
+
+            const canUpdate = await checkTableExists(targetTable);
+            if (canUpdate) {
+                await supabase
+                    .from(targetTable)
+                    .update(updatePayload)
+                    .or(`participant_id.eq.${pId},id.eq.${pId},participant_id.eq.${splashVariant}`);
+            }
+
+            // Sync localStorage
+            if (typeof window !== 'undefined') {
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith('local_participants_')) {
+                            const items = JSON.parse(localStorage.getItem(key) || '[]');
+                            const updatedList = items.map((p: any) => 
+                                (p.participant_id === pId || p.id === pId) 
+                                    ? { ...p, ...updatePayload, name: updatePayload.participant_name, registerNumber: updatePayload.register_number } 
+                                    : p
+                            );
+                            localStorage.setItem(key, JSON.stringify(updatedList));
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            // Update state
+            setParticipant({
+                ...participant,
+                name: updatePayload.participant_name,
+                participant_name: updatePayload.participant_name,
+                registerNumber: updatePayload.register_number,
+                year: updatePayload.year,
+                department: updatePayload.department,
+                section: updatePayload.section,
+                game: updatePayload.game,
+            });
+
+            setShowEditModal(false);
+        } catch (err: any) {
+            console.error("Save edit error:", err);
+            alert("Error updating details: " + (err?.message || "Unknown error"));
+        }
+    };
+
     const resetScanner = () => {
         setScanResult(null);
         setParticipant(null);
@@ -855,7 +952,132 @@ export default function QRScannerPage() {
                                 </span>
                             </div>
                         </div>
-                    </motion.div>
+                    
+            {/* Quick Edit Delegate Modal */}
+            <AnimatePresence>
+                {showEditModal && participant && (
+                    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl" onClick={() => setShowEditModal(false)}>
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            onClick={e => e.stopPropagation()}
+                            className="bg-[#0e0e12] border border-white/10 rounded-[2.5rem] p-8 max-w-lg w-full shadow-2xl relative"
+                        >
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-500">
+                                        QUICK EDIT DELEGATE
+                                    </span>
+                                    <h3 className="text-xl font-black text-white uppercase tracking-tight">
+                                        Update Details
+                                    </h3>
+                                </div>
+                                <button type="button" onClick={() => setShowEditModal(false)} className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 text-white/50 hover:text-white cursor-pointer">
+                                    <X size={16} />
+                                </button>
+                            </div>
+
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const fd = new FormData(e.currentTarget);
+                                handleSaveParticipantEdit({
+                                    name: fd.get('name') as string,
+                                    registerNumber: fd.get('registerNumber') as string,
+                                    year: fd.get('year') as string,
+                                    department: fd.get('department') as string,
+                                    section: fd.get('section') as string,
+                                    game: fd.get('game') as string,
+                                });
+                            }} className="space-y-4">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">
+                                        Full Name
+                                    </label>
+                                    <input
+                                        required
+                                        name="name"
+                                        defaultValue={participant.name}
+                                        className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">
+                                            Register Number
+                                        </label>
+                                        <input
+                                            required
+                                            name="registerNumber"
+                                            defaultValue={participant.registerNumber}
+                                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white font-mono"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">
+                                            Year
+                                        </label>
+                                        <input
+                                            name="year"
+                                            defaultValue={participant.year}
+                                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">
+                                            Department
+                                        </label>
+                                        <input
+                                            required
+                                            name="department"
+                                            defaultValue={participant.department}
+                                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">
+                                            Section
+                                        </label>
+                                        <input
+                                            name="section"
+                                            defaultValue={participant.section}
+                                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">
+                                        Game (Optional)
+                                    </label>
+                                    <input
+                                        name="game"
+                                        defaultValue={participant.game}
+                                        className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    />
+                                </div>
+                                <div className="flex gap-3 pt-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowEditModal(false)}
+                                        className="flex-1 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="flex-[2] bg-amber-500 hover:bg-amber-400 text-black py-3.5 rounded-xl font-black uppercase tracking-wider text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer"
+                                    >
+                                        Save Changes <Check size={16} strokeWidth={3} />
+                                    </button>
+                                </div>
+                            </form>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+</motion.div>
                 )}
             </AnimatePresence>
 

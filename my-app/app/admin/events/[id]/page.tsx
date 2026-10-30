@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import {
-    Plus, Trash2, Download, Search, Loader2, Building, Users, ShieldCheck,
+    Plus, Trash2, Edit3, Download, Search, Loader2, Building, Users, ShieldCheck,
     QrCode, Mail, ScanLine, LayoutDashboard, ChevronRight, X, Upload,
     FileText, AlertTriangle, CheckCircle2, Table2, RefreshCw, ArrowLeft,
     Calendar, MapPin, Tag, Filter, Check, ChevronDown, Sparkles, Database,
@@ -55,6 +55,7 @@ export default function EventCommandCenterPage() {
     const [statusFilter, setStatusFilter] = useState<'all' | 'registered' | 'checked-in'>('all');
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
+    const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
     const [registrationFeedback, setRegistrationFeedback] = useState<{
         isOpen: boolean;
         success: boolean;
@@ -445,7 +446,150 @@ export default function EventCommandCenterPage() {
         }
     };
 
-        const deleteParticipant = async (participantId?: string) => {
+        const handleUpdateParticipant = async (updatedData: any) => {
+        if (!editingParticipant) return;
+        setIsSaving(true);
+        try {
+            const eventName = currentEvent ? currentEvent.title : (editingParticipant.event || "Vishaka 2026");
+            const { participantsTable, checkInTable } = getEventTableNames(eventName);
+            const pId = editingParticipant.participant_id || editingParticipant.id;
+            const splashVariant = pId.replace(/vishaka/gi, "Splash");
+
+            const updatePayload: any = {
+                participant_name: updatedData.name,
+                register_number: updatedData.registerNumber,
+                year: updatedData.year,
+                department: updatedData.department,
+                section: updatedData.section,
+                game: updatedData.game || null,
+                email: updatedData.email || null,
+                mobile: updatedData.mobile || null,
+                category: updatedData.category || "General",
+                status: updatedData.status || "registered",
+                updated_at: new Date().toISOString()
+            };
+
+            // 1. Update in dedicated table if it exists
+            const isDedicatedActive = await checkTableExists(participantsTable);
+            if (isDedicatedActive) {
+                const { error: upErr } = await supabase
+                    .from(participantsTable)
+                    .update(updatePayload)
+                    .or(`participant_id.eq.${pId},id.eq.${pId},participant_id.eq.${splashVariant}`);
+                
+                if (upErr && upErr.code === 'PGRST204') {
+                    const match = upErr.message?.match(/Could not find the '([^']+)' column/i);
+                    if (match && match[1]) {
+                        delete updatePayload[match[1]];
+                        await supabase
+                            .from(participantsTable)
+                            .update(updatePayload)
+                            .or(`participant_id.eq.${pId},id.eq.${pId},participant_id.eq.${splashVariant}`);
+                    }
+                }
+            }
+
+            // 2. Update unified table if it exists
+            const hasUnified = await checkTableExists('participants');
+            if (hasUnified) {
+                try {
+                    await supabase
+                        .from('participants')
+                        .update(updatePayload)
+                        .or(`participant_id.eq.${pId},id.eq.${pId}`);
+                } catch (e) {}
+            }
+
+            // 3. If status changed to 'checked-in', ensure check-in log entry exists
+            if (updatedData.status === 'checked-in' && checkInTable) {
+                try {
+                    const hasLogTable = await checkTableExists(checkInTable);
+                    if (hasLogTable) {
+                        const { data: existingLogs } = await supabase
+                            .from(checkInTable)
+                            .select('id')
+                            .eq('participant_id', pId)
+                            .limit(1);
+                        
+                        if (!existingLogs || existingLogs.length === 0) {
+                            await supabase
+                                .from(checkInTable)
+                                .insert([{
+                                    participant_id: pId,
+                                    logged_at: new Date().toISOString(),
+                                    scanner_id: 'admin_dashboard',
+                                    status: 'checked-in'
+                                }]);
+                        }
+                    }
+                } catch (logErr) {
+                    console.warn("Log update error:", logErr);
+                }
+            }
+
+            // 4. Update in local storage
+            const localKey = `local_participants_${currentEvent?.id || 'default'}`;
+            try {
+                const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+                const updatedList = existing.map((p: any) => {
+                    if (p.participant_id === pId || p.id === pId) {
+                        return {
+                            ...p,
+                            ...updatePayload,
+                            name: updatedData.name,
+                            participant_name: updatedData.name,
+                            registerNumber: updatedData.registerNumber,
+                            register_number: updatedData.registerNumber,
+                        };
+                    }
+                    return p;
+                });
+                localStorage.setItem(localKey, JSON.stringify(updatedList));
+            } catch (lsErr) {}
+
+            // 5. Update in local React state
+            setParticipants(prev => prev.map(p => {
+                if (p.participant_id === pId || p.id === pId) {
+                    return {
+                        ...p,
+                        name: updatedData.name,
+                        participant_name: updatedData.name,
+                        registerNumber: updatedData.registerNumber,
+                        year: updatedData.year,
+                        department: updatedData.department,
+                        section: updatedData.section,
+                        game: updatedData.game || "",
+                        email: updatedData.email || "",
+                        mobile: updatedData.mobile || "",
+                        category: updatedData.category || "General",
+                        status: updatedData.status || "registered",
+                    };
+                }
+                return p;
+            }));
+
+            // Close edit modal
+            setEditingParticipant(null);
+
+            // Pop up confirmation
+            setRegistrationFeedback({
+                isOpen: true,
+                success: true,
+                title: "DETAILS UPDATED",
+                message: `Successfully updated participant details for ${updatedData.name} (${pId}).`,
+                participantId: pId,
+                participantName: updatedData.name
+            });
+
+        } catch (error: any) {
+            console.error('Error updating participant:', error);
+            alert("Error updating participant: " + (error?.message || "Unknown error"));
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const deleteParticipant = async (participantId?: string) => {
             if (!participantId) return;
             if (!confirm(`Are you sure you want to delete participant: ${participantId}?`)) return;
             try {
@@ -1219,6 +1363,13 @@ export default function EventCommandCenterPage() {
                                                         <td className="px-8 py-5">
                                                             <div className="flex justify-end items-center gap-2">
                                                                 <button
+                                                                    onClick={() => setEditingParticipant(p)}
+                                                                    className="w-9 h-9 flex items-center justify-center bg-white/5 hover:bg-amber-500 hover:text-black transition-all rounded-xl text-white/40 hover:text-black cursor-pointer"
+                                                                    title="Edit participant details"
+                                                                >
+                                                                    <Edit3 size={15} />
+                                                                </button>
+                                                                <button
                                                                     onClick={() => downloadQR(p.participant_id, p.participant_name)}
                                                                     className="w-9 h-9 flex items-center justify-center bg-white/5 hover:bg-amber-500 hover:text-black transition-all rounded-xl text-white/30 cursor-pointer"
                                                                     title="Download pass image"
@@ -1391,6 +1542,14 @@ export default function EventCommandCenterPage() {
                             onAdd={handleAddParticipant}
                         />
 
+                        {/* Edit Participant Modal */}
+                        <EditParticipantModal
+                            participant={editingParticipant}
+                            eventName={currentEvent?.title || "Vishaka 2026"}
+                            onClose={() => setEditingParticipant(null)}
+                            onUpdate={handleUpdateParticipant}
+                        />
+
                         {/* Registration Feedback / Confirmation Popup Modal */}
                         <AnimatePresence>
                             {registrationFeedback?.isOpen && (
@@ -1518,6 +1677,17 @@ export default function EventCommandCenterPage() {
                                             >
                                                 <Download size={16} /> DOWNLOAD PASS
                                             </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const p = selectedParticipant;
+                                                    setSelectedParticipant(null);
+                                                    setEditingParticipant(p);
+                                                }}
+                                                className="w-full mt-3 bg-black/5 hover:bg-amber-500 hover:text-black text-black/70 py-3.5 rounded-2xl font-black uppercase tracking-[0.25em] text-xs transition-all flex items-center justify-center gap-2 cursor-pointer border border-black/10"
+                                            >
+                                                <Edit3 size={15} /> EDIT DETAILS
+                                            </button>
                                         </div>
                                     </motion.div>
                                 </div>
@@ -1634,3 +1804,252 @@ export default function EventCommandCenterPage() {
                     </div>
                 );
             }
+
+
+interface EditParticipantModalProps {
+    participant: Participant | null;
+    eventName: string;
+    onClose: () => void;
+    onUpdate: (data: any) => Promise<void>;
+}
+
+function EditParticipantModal({ participant, eventName, onClose, onUpdate }: EditParticipantModalProps) {
+    const [formData, setFormData] = useState({
+        name: "",
+        registerNumber: "",
+        year: "1",
+        department: "CSE",
+        section: "A",
+        game: "",
+        category: "General",
+        email: "",
+        mobile: "",
+        status: "registered"
+    });
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        if (participant) {
+            setFormData({
+                name: participant.name || participant.participant_name || "",
+                registerNumber: participant.registerNumber || "",
+                year: participant.year || "1",
+                department: participant.department || "CSE",
+                section: participant.section || "A",
+                game: participant.game || "",
+                category: participant.category || "General",
+                email: participant.email || "",
+                mobile: participant.mobile || "",
+                status: participant.status || "registered"
+            });
+        }
+    }, [participant]);
+
+    if (!participant) return null;
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSaving(true);
+        try {
+            await onUpdate(formData);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-6 bg-black/95 backdrop-blur-xl" onClick={onClose}>
+            <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                onClick={e => e.stopPropagation()}
+                className="bg-[#0c0c0e] border border-white/10 rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+            >
+                <div className="p-8 border-b border-white/5 flex justify-between items-center">
+                    <div>
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] font-black tracking-[0.3em] text-amber-500 uppercase">
+                                Edit Participant
+                            </span>
+                            <span className="text-[10px] font-mono text-white/40 bg-white/5 px-2 py-0.5 rounded-full">
+                                {participant.participant_id}
+                            </span>
+                        </div>
+                        <h2 className="text-2xl font-black text-white uppercase tracking-tight">
+                            Modify Delegate Record
+                        </h2>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="w-10 h-10 flex items-center justify-center bg-white/5 rounded-xl text-white/50 hover:text-white cursor-pointer"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-8">
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Full Name *
+                                </label>
+                                <input
+                                    required
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.name}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Register Number *
+                                </label>
+                                <input
+                                    required
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white font-mono"
+                                    value={formData.registerNumber}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, registerNumber: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Year *
+                                </label>
+                                <select
+                                    className="w-full bg-[#111] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.year}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, year: e.target.value }))}
+                                >
+                                    <option value="1">1st Year</option>
+                                    <option value="2">2nd Year</option>
+                                    <option value="3">3rd Year</option>
+                                    <option value="4">4th Year</option>
+                                    <option value="I">Year I</option>
+                                    <option value="II">Year II</option>
+                                    <option value="III">Year III</option>
+                                    <option value="IV">Year IV</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Department *
+                                </label>
+                                <input
+                                    required
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.department}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Section *
+                                </label>
+                                <input
+                                    required
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.section}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, section: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Attendance Status
+                                </label>
+                                <select
+                                    className="w-full bg-[#111] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.status}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
+                                >
+                                    <option value="registered">Registered</option>
+                                    <option value="checked-in">Checked-In</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Game / Event Sub-Activity (Optional)
+                                </label>
+                                <input
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    placeholder="e.g. Free Fire, BGMI, Valorant..."
+                                    value={formData.game}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, game: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Category
+                                </label>
+                                <input
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    placeholder="General, Technical, Cultural..."
+                                    value={formData.category}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Email Address (Optional)
+                                </label>
+                                <input
+                                    type="email"
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.email}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
+                                    Mobile Number (Optional)
+                                </label>
+                                <input
+                                    type="tel"
+                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-amber-500 text-xs font-bold text-white"
+                                    value={formData.mobile}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, mobile: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="flex-1 py-4 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isSaving}
+                                className="flex-[2] bg-amber-500 hover:bg-amber-400 text-black py-4 rounded-xl font-black uppercase tracking-[0.25em] text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-xl cursor-pointer"
+                            >
+                                {isSaving ? (
+                                    <Loader2 className="animate-spin" size={16} />
+                                ) : (
+                                    <>
+                                        SAVE CHANGES <Check size={16} strokeWidth={3} />
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </motion.div>
+        </div>
+    );
+}

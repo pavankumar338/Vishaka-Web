@@ -83,7 +83,9 @@ export default function AdminEventsDashboard() {
     async function loadAllData() {
         setLoading(true);
         try {
-            await Promise.all([loadEventsOnly(), fetchParticipantsOnly()]);
+            const list = await getEvents();
+            setEvents(list);
+            await fetchParticipantsOnly(list);
         } catch (e) {
             console.error("Error loading dashboard data:", e);
         } finally {
@@ -95,23 +97,83 @@ export default function AdminEventsDashboard() {
         try {
             const list = await getEvents();
             setEvents(list);
+            return list;
         } catch (err) {
             console.error("Failed to load events:", err);
+            return [];
         }
     }
 
-    async function fetchParticipantsOnly() {
+    async function fetchParticipantsOnly(eventsList?: EventItem[]) {
         try {
-            const [pRes, logRes] = await Promise.all([
-                supabase.from('participants').select('*'),
-                supabase.from('check_in_logs').select('participant_id')
-            ]);
-            if (pRes.data) {
-                setParticipants(pRes.data as any);
+            const evts = eventsList || events;
+            let allParticipants: any[] = [];
+            let allCheckedInIds = new Set<string>();
+
+            // 1. Try unified table if it exists
+            const hasUnified = await checkTableExists('participants');
+            if (hasUnified) {
+                try {
+                    const [pRes, logRes] = await Promise.all([
+                        supabase.from('participants').select('*'),
+                        supabase.from('check_in_logs').select('participant_id')
+                    ]);
+                    if (pRes.data) allParticipants = [...pRes.data];
+                    if (logRes.data) (logRes.data as any[]).forEach(l => allCheckedInIds.add(l.participant_id));
+                } catch (e) {
+                    console.warn("Unified table query warning:", e);
+                }
             }
-            if (logRes.data) {
-                setCheckedInIds(new Set(logRes.data.map(l => l.participant_id)));
+
+            // 2. Query dedicated event tables
+            for (const evt of evts) {
+                const { participantsTable, checkInTable } = getEventTableNames(evt.title);
+                try {
+                    const exists = await checkTableExists(participantsTable);
+                    if (exists) {
+                        const [pRes, logRes] = await Promise.all([
+                            supabase.from(participantsTable).select('*'),
+                            supabase.from(checkInTable).select('participant_id')
+                        ]);
+                        if (pRes.data) {
+                            const existingIds = new Set(allParticipants.map((p: any) => p.participant_id || p.id));
+                            for (const row of pRes.data) {
+                                if (!existingIds.has(row.participant_id) && !existingIds.has(row.id)) {
+                                    allParticipants.push({ ...row, event: row.event || evt.title });
+                                    existingIds.add(row.participant_id || row.id);
+                                }
+                            }
+                        }
+                        if (logRes.data) {
+                            (logRes.data as any[]).forEach(l => allCheckedInIds.add(l.participant_id));
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Error fetching ${participantsTable}:`, e);
+                }
             }
+
+            // 3. Merge localStorage caches
+            if (typeof window !== 'undefined') {
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith('local_participants_')) {
+                            const items = JSON.parse(localStorage.getItem(key) || '[]');
+                            const existingIds = new Set(allParticipants.map((p: any) => p.participant_id || p.id));
+                            for (const row of items) {
+                                if (!existingIds.has(row.participant_id) && !existingIds.has(row.id)) {
+                                    allParticipants.push(row);
+                                    existingIds.add(row.participant_id || row.id);
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            setParticipants(allParticipants);
+            setCheckedInIds(allCheckedInIds);
         } catch (err) {
             console.error("Failed to fetch participants count:", err);
         }
