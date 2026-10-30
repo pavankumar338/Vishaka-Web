@@ -350,45 +350,60 @@ export async function findParticipantAcrossTables(id: string): Promise<{
 }> {
   if (!id) return { participant: null, sourceTable: null, checkInTable: null, isCheckedIn: false };
 
-  const cleanId = decodeURIComponent(id).trim();
+  let raw = decodeURIComponent(id).trim();
+  if (raw.includes('/')) {
+    const parts = raw.split('/');
+    raw = parts[parts.length - 1] || raw;
+  }
+  const cleanId = raw.trim();
   const vishakaVariant = cleanId.replace(/splash/gi, "Vishaka");
   const splashVariant = cleanId.replace(/vishaka/gi, "Splash");
 
-  // 1. Get candidate tables from all registered events
-  const candidateTables: { participantsTable: string; checkInTable: string }[] = [];
+  // 1. Candidate tables - put known active tables first
+  const candidateTables: { participantsTable: string; checkInTable: string }[] = [
+    { participantsTable: 'participants_ignite2k26', checkInTable: 'check_in_logs_ignite2k26' }
+  ];
+
   try {
     const { data: events } = await supabase.from('events').select('title, code');
     if (events && events.length > 0) {
       for (const e of events) {
-        candidateTables.push(getEventTableNames(e.title));
+        const tNames = getEventTableNames(e.title);
+        if (!candidateTables.some(c => c.participantsTable === tNames.participantsTable)) {
+          candidateTables.push(tNames);
+        }
       }
     }
   } catch {}
 
-  // Known fallback candidates
-  candidateTables.push({ participantsTable: 'participants_ignite2k26', checkInTable: 'check_in_logs_ignite2k26' });
   candidateTables.push({ participantsTable: 'participants_vishaka_2026', checkInTable: 'check_in_logs_vishaka_2026' });
   candidateTables.push({ participantsTable: 'participants', checkInTable: 'check_in_logs' });
 
-  // 2. Search candidate tables in parallel/sequence
+  // 2. Search candidate tables
   for (const { participantsTable, checkInTable } of candidateTables) {
     try {
+      const exists = await checkTableExists(participantsTable);
+      if (!exists) continue;
+
       const { data, error } = await supabase
         .from(participantsTable)
         .select('*')
-        .or(`participant_id.eq.${cleanId},participant_id.eq.${vishakaVariant},participant_id.eq.${splashVariant},id.eq.${cleanId}`)
+        .or(`participant_id.eq.${cleanId},id.eq.${cleanId},register_number.eq.${cleanId},mobile.eq.${cleanId},participant_id.eq.${vishakaVariant},participant_id.eq.${splashVariant}`)
         .limit(1);
 
       if (!error && data && data.length > 0) {
         const item = data[0];
         let isCheckedIn = item.status === 'checked-in';
         try {
-          const { data: logData } = await supabase
-            .from(checkInTable)
-            .select('id')
-            .eq('participant_id', item.participant_id || cleanId)
-            .limit(1);
-          if (logData && logData.length > 0) isCheckedIn = true;
+          const hasLogT = await checkTableExists(checkInTable);
+          if (hasLogT) {
+            const { data: logData } = await supabase
+              .from(checkInTable)
+              .select('id')
+              .eq('participant_id', item.participant_id || cleanId)
+              .limit(1);
+            if (logData && logData.length > 0) isCheckedIn = true;
+          }
         } catch {}
 
         return {
@@ -409,7 +424,12 @@ export async function findParticipantAcrossTables(id: string): Promise<{
         if (key && key.startsWith('local_participants_')) {
           const items = JSON.parse(localStorage.getItem(key) || '[]');
           const match = items.find((p: any) => 
-            p.participant_id === cleanId || p.participant_id === vishakaVariant || p.id === cleanId
+            p.participant_id === cleanId || 
+            p.id === cleanId || 
+            p.register_number === cleanId || 
+            p.registerNumber === cleanId ||
+            p.participant_id === vishakaVariant || 
+            p.participant_id === splashVariant
           );
           if (match) {
             return {
@@ -426,4 +446,3 @@ export async function findParticipantAcrossTables(id: string): Promise<{
 
   return { participant: null, sourceTable: null, checkInTable: null, isCheckedIn: false };
 }
-

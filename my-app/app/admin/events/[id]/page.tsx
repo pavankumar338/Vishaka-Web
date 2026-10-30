@@ -93,10 +93,7 @@ export default function EventCommandCenterPage() {
             return;
         }
 
-        const windowUrl = window.location.origin;
-        const defaultUrl = windowUrl.includes('localhost')
-            ? `http://10.136.9.91:3000`
-            : windowUrl;
+        const defaultUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
         setBaseUrl(defaultUrl);
 
         loadEventData();
@@ -148,97 +145,172 @@ export default function EventCommandCenterPage() {
 
             let rawData: any[] = [];
             let checkedInSet = new Set<string>();
+            let tableActive = false;
 
-            // Always check if dedicated table exists for this event
-            let dedicatedExists = false;
-            if (!isAll) {
-                dedicatedExists = await checkTableExists(participantsTable);
-                setHasDedicatedTable(dedicatedExists);
-            }
+            if (isAll) {
+                // When viewing all events, query all candidate event tables
+                const evts = allEvents.length > 0 ? allEvents : await getEvents();
+                const tablesToQuery: { pTable: string; cTable: string; evtTitle: string }[] = [
+                    { pTable: 'participants_ignite2k26', cTable: 'check_in_logs_ignite2k26', evtTitle: 'Ignite2k26' }
+                ];
 
-            if (dedicatedExists && !isAll) {
-                try {
-                    const [pRes, logRes] = await Promise.all([
-                        supabase.from(participantsTable).select('*').order('created_at', { ascending: false }),
-                        supabase.from(checkInTable).select('participant_id, logged_at')
-                    ]);
-
-                    if (!pRes.error && pRes.data) {
-                        rawData = pRes.data;
-                        checkedInSet = new Set((logRes.data || []).map((l: any) => l.participant_id));
+                for (const evt of evts) {
+                    if (evt.id !== "all") {
+                        const { participantsTable: pt, checkInTable: ct } = getEventTableNames(evt.title);
+                        if (!tablesToQuery.some(t => t.pTable === pt)) {
+                            tablesToQuery.push({ pTable: pt, cTable: ct, evtTitle: evt.title });
+                        }
                     }
-                } catch (dedErr) {
-                    console.warn("Dedicated table read error:", dedErr);
                 }
+
+                for (const { pTable, cTable, evtTitle } of tablesToQuery) {
+                    try {
+                        const exists = await checkTableExists(pTable);
+                        if (exists) {
+                            const [pRes, logRes] = await Promise.all([
+                                supabase.from(pTable).select('*').order('created_at', { ascending: false }),
+                                supabase.from(cTable).select('participant_id, logged_at')
+                            ]);
+
+                            if (pRes.data && pRes.data.length > 0) {
+                                const existingIds = new Set(rawData.map((r: any) => r.participant_id || r.id));
+                                for (const row of pRes.data) {
+                                    if (!existingIds.has(row.participant_id) && !existingIds.has(row.id)) {
+                                        rawData.push({ ...row, event: row.event || evtTitle });
+                                        existingIds.add(row.participant_id || row.id);
+                                    }
+                                }
+                            }
+
+                            if (logRes.data && logRes.data.length > 0) {
+                                logRes.data.forEach((l: any) => {
+                                    if (l.participant_id) checkedInSet.add(l.participant_id);
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`Querying ${pTable} warning:`, e);
+                    }
+                }
+                setHasDedicatedTable(true);
             } else {
-                // Check if unified table exists
-                const hasUnified = await checkTableExists('participants');
-                if (hasUnified) {
+                // Fetch for specific event
+                let activePTable = participantsTable;
+                let activeCTable = checkInTable;
+
+                tableActive = await checkTableExists(activePTable);
+
+                // If event title didn't resolve to existing table, check participants_ignite2k26 as fallback
+                if (!tableActive && (currentEvent.id.includes('ignite') || /ignite/i.test(currentEvent.title) || /ignite/i.test(currentEvent.code))) {
+                    activePTable = 'participants_ignite2k26';
+                    activeCTable = 'check_in_logs_ignite2k26';
+                    tableActive = await checkTableExists(activePTable);
+                }
+
+                setHasDedicatedTable(tableActive);
+
+                if (tableActive) {
                     try {
                         const [pRes, logRes] = await Promise.all([
-                            supabase.from('participants').select('*').order('created_at', { ascending: false }),
-                            supabase.from('check_in_logs').select('participant_id, logged_at')
+                            supabase.from(activePTable).select('*').order('created_at', { ascending: false }),
+                            supabase.from(activeCTable).select('participant_id, logged_at')
                         ]);
 
                         if (!pRes.error && pRes.data) {
-                            const isMainSymposium = currentEvent.id === "vishaka-2026" || /vishaka/i.test(currentEvent.code);
-                            rawData = (pRes.data || []).filter((item: any) => {
-                                if (isAll) return true;
-                                const pEvent = (item.event || "").trim().toLowerCase();
-                                const eventCode = (currentEvent.code || "").toLowerCase();
-                                const eventTitle = (currentEvent.title || "").toLowerCase();
-
-                                if (isMainSymposium) {
-                                    return !pEvent || /vishaka/i.test(pEvent) || /splash/i.test(pEvent) || pEvent.includes(eventCode);
-                                }
-
-                                return pEvent.includes(eventCode) ||
-                                    pEvent.includes(eventTitle) ||
-                                    eventTitle.includes(pEvent);
-                            });
+                            rawData = pRes.data;
                             checkedInSet = new Set((logRes.data || []).map((l: any) => l.participant_id));
                         }
-                    } catch (uniErr) {
-                        console.warn("Unified table read error:", uniErr);
+                    } catch (dedErr) {
+                        console.warn("Dedicated table read error:", dedErr);
+                    }
+                } else {
+                    // Check if unified table exists
+                    const hasUnified = await checkTableExists('participants');
+                    if (hasUnified) {
+                        try {
+                            const [pRes, logRes] = await Promise.all([
+                                supabase.from('participants').select('*').order('created_at', { ascending: false }),
+                                supabase.from('check_in_logs').select('participant_id, logged_at')
+                            ]);
+
+                            if (!pRes.error && pRes.data) {
+                                const eventCode = (currentEvent.code || "").toLowerCase();
+                                const eventTitle = (currentEvent.title || "").toLowerCase();
+                                rawData = (pRes.data || []).filter((item: any) => {
+                                    const pEvent = (item.event || "").trim().toLowerCase();
+                                    return pEvent.includes(eventCode) || pEvent.includes(eventTitle);
+                                });
+                                checkedInSet = new Set((logRes.data || []).map((l: any) => l.participant_id));
+                            }
+                        } catch (uniErr) {}
                     }
                 }
             }
 
-            // Merge with local storage cache for this event as a resilient fail-safe
-            try {
-                const localKey = `local_participants_${currentEvent.id}`;
-                const savedLocal = localStorage.getItem(localKey);
-                if (savedLocal) {
-                    const localItems: any[] = JSON.parse(savedLocal);
-                    const existingIds = new Set(rawData.map(r => r.participant_id || r.id));
-                    for (const loc of localItems) {
-                        if (!existingIds.has(loc.participant_id) && !existingIds.has(loc.id)) {
-                            rawData.unshift(loc);
+            // If database records were fetched, Supabase is the single source of truth.
+            // Purge any stale local caches that might cause ghost participant counts.
+            if ((tableActive || isAll) && rawData.length > 0) {
+                try {
+                    localStorage.removeItem(`local_participants_${currentEvent.id}`);
+                    localStorage.removeItem('local_participants_default');
+                    localStorage.removeItem('local_participants_all');
+                    localStorage.removeItem('local_participants_vishaka-2026');
+                    localStorage.removeItem('local_participants_ignite2k26-mvi537sm');
+                } catch (e) {}
+            } else if (rawData.length === 0) {
+                // Only fallback to localStorage if Supabase has 0 records or is unreachable
+                try {
+                    const localKey = `local_participants_${currentEvent.id}`;
+                    const savedLocal = localStorage.getItem(localKey) || localStorage.getItem('local_participants_default');
+                    if (savedLocal) {
+                        const localItems: any[] = JSON.parse(savedLocal);
+                        const existingIds = new Set<string>();
+                        const existingRegs = new Set<string>();
+
+                        rawData.forEach(r => {
+                            if (r.participant_id) existingIds.add(String(r.participant_id).toLowerCase());
+                            if (r.id) existingIds.add(String(r.id).toLowerCase());
+                            if (r.register_number) existingRegs.add(String(r.register_number).trim().toLowerCase());
+                        });
+
+                        for (const loc of localItems) {
+                            const locId = String(loc.participant_id || loc.id || '').toLowerCase();
+                            const locReg = String(loc.register_number || loc.registerNumber || '').trim().toLowerCase();
+                            if ((!locId || !existingIds.has(locId)) && (!locReg || !existingRegs.has(locReg))) {
+                                rawData.unshift(loc);
+                                if (locId) existingIds.add(locId);
+                                if (locReg) existingRegs.add(locReg);
+                            }
                         }
                     }
+                } catch (lsErr) {
+                    console.warn("LocalStorage fallback warning:", lsErr);
                 }
-            } catch (lsErr) {
-                console.warn("LocalStorage merge warning:", lsErr);
             }
 
             const mappedData: Participant[] = rawData.map((item: any) => {
                 const rawId = item.participant_id || item.id || "";
                 const cleanId = rawId.replace(/splash/gi, "Vishaka");
-                const isCheckedIn = item.status === 'checked-in' || checkedInSet.has(rawId) || checkedInSet.has(cleanId) || checkedInSet.has(item.id);
+                const regNo = item.register_number || item.registerNumber || "";
+                const isCheckedIn = item.status === 'checked-in' || 
+                    checkedInSet.has(rawId) || 
+                    checkedInSet.has(cleanId) || 
+                    checkedInSet.has(item.id) ||
+                    (regNo && checkedInSet.has(regNo));
 
                 return {
                     id: cleanId,
                     participant_id: cleanId,
                     name: item.participant_name || item.name || "Unknown",
                     participant_name: item.participant_name || item.name || "Unknown",
-                    registerNumber: item.register_number || item.registerNumber || "",
+                    registerNumber: regNo,
                     year: item.year || "",
                     department: item.department || "",
                     section: item.section || "",
                     game: item.game || "",
                     email: item.email || "",
                     mobile: item.mobile || item.phone || "",
-                    category: item.category || "",
+                    category: item.category || "General",
                     culturalInterest: item.cultural_interest || item.culturalInterest || "",
                     status: isCheckedIn ? 'checked-in' : (item.status || 'registered'),
                     event: item.event || currentEvent.title,
@@ -253,7 +325,7 @@ export default function EventCommandCenterPage() {
         } finally {
             setLoading(false);
         }
-    }, [currentEvent, baseUrl]);
+    }, [currentEvent, allEvents, baseUrl]);
 
     useEffect(() => {
         if (currentEvent) {
@@ -263,21 +335,24 @@ export default function EventCommandCenterPage() {
     }, [currentEvent, fetchParticipants]);
 
     useEffect(() => {
-        const { participantsTable, checkInTable } = currentEvent ? getEventTableNames(currentEvent.title) : { participantsTable: 'participants', checkInTable: 'check_in_logs' };
+        const { participantsTable, checkInTable } = currentEvent ? getEventTableNames(currentEvent.title) : { participantsTable: 'participants_ignite2k26', checkInTable: 'check_in_logs_ignite2k26' };
+
+        const activePTable = (currentEvent?.id === 'all' || !hasDedicatedTable) ? 'participants_ignite2k26' : participantsTable;
+        const activeCTable = (currentEvent?.id === 'all' || !hasDedicatedTable) ? 'check_in_logs_ignite2k26' : checkInTable;
 
         const channel = supabase
             .channel(`dashboard-${eventId}-sync`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: hasDedicatedTable ? participantsTable : 'participants' }, () => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: activePTable }, () => {
                 fetchParticipants();
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: hasDedicatedTable ? checkInTable : 'check_in_logs' }, () => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: activeCTable }, () => {
                 fetchParticipants();
             })
             .subscribe();
 
         const interval = setInterval(() => {
             fetchParticipants();
-        }, 6000);
+        }, 5000);
 
         return () => {
             supabase.removeChannel(channel);
@@ -384,14 +459,16 @@ export default function EventCommandCenterPage() {
                 }
             }
 
-            // Always save to localStorage as a fail-safe so registration never drops
-            const localKey = `local_participants_${currentEvent?.id || 'default'}`;
-            try {
-                const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-                existing.unshift(insertPayload);
-                localStorage.setItem(localKey, JSON.stringify(existing));
-            } catch (lsErr) {
-                console.warn("localStorage save error:", lsErr);
+            // Only save to localStorage as an offline fallback if DB insert failed
+            if (!savedToSupabase) {
+                const localKey = `local_participants_${currentEvent?.id || 'default'}`;
+                try {
+                    const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+                    existing.unshift(insertPayload);
+                    localStorage.setItem(localKey, JSON.stringify(existing));
+                } catch (lsErr) {
+                    console.warn("localStorage save error:", lsErr);
+                }
             }
 
             // Optimistically add participant to UI state immediately
@@ -886,14 +963,16 @@ export default function EventCommandCenterPage() {
             setCsvProgress(Math.min(100, Math.round(((b + batchRows.length) / validRows.length) * 100)));
         }
 
-        // Always save to localStorage fail-safe
-        const localKey = `local_participants_${currentEvent?.id || 'default'}`;
-        try {
-            const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-            const combined = [...localPayloadsForStorage, ...existing];
-            localStorage.setItem(localKey, JSON.stringify(combined));
-        } catch (lsErr) {
-            console.warn("localStorage bulk save warning:", lsErr);
+        // Only save uninserted rows to localStorage as fallback if DB insert had errors
+        if (errors.length > 0) {
+            const localKey = `local_participants_${currentEvent?.id || 'default'}`;
+            try {
+                const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+                const combined = [...localPayloadsForStorage, ...existing];
+                localStorage.setItem(localKey, JSON.stringify(combined));
+            } catch (lsErr) {
+                console.warn("localStorage bulk save warning:", lsErr);
+            }
         }
 
         // Optimistically add to UI state immediately

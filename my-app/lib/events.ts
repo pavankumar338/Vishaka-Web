@@ -1,7 +1,25 @@
+import { getEventTableNames } from './eventTables';
 import { supabase } from './supabase';
 import { EventItem } from './types';
 
 export const DEFAULT_EVENTS: EventItem[] = [
+  {
+    id: "ignite2k26-mvi537sm",
+    title: "Ignite2k26",
+    code: "IGNITE2K26",
+    category: "Cultural",
+    description: "Annual flagship cultural festival and competition arena.",
+    venue: "KrishnanAuditorium",
+    date: "2026-10-31",
+    time: "10:00 AM - 04:00 PM",
+    status: "active",
+    maxCapacity: 1000,
+    colorTheme: "#10b981",
+    participantsTable: "participants_ignite2k26",
+    checkInTable: "check_in_logs_ignite2k26",
+    tablesCreated: true,
+    createdAt: "2026-10-21T13:20:01.846+00:00",
+  },
   {
     id: "vishaka-2026",
     title: "Vishaka 2K26 Main Symposium",
@@ -109,24 +127,37 @@ export async function getEvents(): Promise<EventItem[]> {
     // Attempt Supabase fetch
     const { data, error } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     if (!error && data && data.length > 0) {
-      const mapped: EventItem[] = data.map(item => ({
-        id: item.id || item.event_id,
-        title: item.title || item.name,
-        code: item.code || item.slug || (item.title || "").toUpperCase().replace(/\s+/g, '-'),
-        category: item.category || 'Technical',
-        description: item.description || '',
-        venue: item.venue || '',
-        date: item.date || item.event_date || '',
-        time: item.time || '',
-        status: item.status || 'active',
-        maxCapacity: item.max_capacity || item.capacity || 200,
-        colorTheme: item.color_theme || '#f59e0b',
-        createdAt: item.created_at || new Date().toISOString(),
-        bannerUrl: item.banner_url || '',
-        participantsTable: item.participants_table || item.participantsTable,
-        checkInTable: item.check_in_table || item.checkInTable,
-        tablesCreated: item.tables_created ?? item.tablesCreated ?? false,
-      }));
+      const mapped: EventItem[] = data.map(item => {
+        const title = item.title || item.name || '';
+        const { participantsTable, checkInTable } = getEventTableNames(title);
+        return {
+          id: item.id || item.event_id,
+          title: title,
+          code: item.code || item.slug || title.toUpperCase().replace(/\s+/g, '-'),
+          category: item.category || 'Cultural',
+          description: item.description || '',
+          venue: item.venue || 'Campus Auditorium',
+          date: item.date || item.event_date || '2026-10-31',
+          time: item.time || '10:00 AM - 04:00 PM',
+          status: item.status || 'active',
+          maxCapacity: item.max_capacity || item.capacity || 1000,
+          colorTheme: item.color_theme || '#10b981',
+          createdAt: item.created_at || new Date().toISOString(),
+          bannerUrl: item.banner_url || '',
+          participantsTable: item.participants_table || item.participantsTable || participantsTable,
+          checkInTable: item.check_in_table || item.checkInTable || checkInTable,
+          tablesCreated: true,
+        };
+      });
+
+      // Merge with default events so none are missing
+      const existingIds = new Set(mapped.map(m => (m.id || '').toLowerCase()));
+      for (const def of DEFAULT_EVENTS) {
+        if (!existingIds.has((def.id || '').toLowerCase()) && !existingIds.has((def.code || '').toLowerCase())) {
+          mapped.push(def);
+        }
+      }
+
       saveLocalEvents(mapped);
       return mapped;
     }

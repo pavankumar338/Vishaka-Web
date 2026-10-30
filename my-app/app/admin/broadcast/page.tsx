@@ -113,7 +113,8 @@ function MailsContent() {
 
             if (target) {
                 // 1. Fetch from event's dedicated database table
-                const { participantsTable } = getEventTableNames(target.title);
+                const { participantsTable: derivedTable } = getEventTableNames(target.title);
+            const participantsTable = target.participantsTable || derivedTable || "participants_ignite2k26";
                 const hasDedicated = await checkTableExists(participantsTable);
 
                 if (hasDedicated) {
@@ -153,25 +154,37 @@ function MailsContent() {
                     }
                 }
 
-                // 2. Merge local storage participants for this event
-                try {
-                    const localKey = `local_participants_${target.id}`;
-                    const savedLocal = localStorage.getItem(localKey);
-                    if (savedLocal) {
-                        const localItems: any[] = JSON.parse(savedLocal);
-                        const existingIds = new Set(rawData.map(r => r.participant_id || r.id));
-                        for (const loc of localItems) {
-                            if (!existingIds.has(loc.participant_id) && !existingIds.has(loc.id)) {
-                                rawData.unshift(loc);
+                // 2. Reconcile with local storage
+                if (rawData.length > 0) {
+                    try {
+                        localStorage.removeItem(`local_participants_${target.id}`);
+                        localStorage.removeItem('local_participants_default');
+                    } catch (e) {}
+                } else {
+                    try {
+                        const localKey = `local_participants_${target.id}`;
+                        const savedLocal = localStorage.getItem(localKey) || localStorage.getItem('local_participants_default');
+                        if (savedLocal) {
+                            const localItems: any[] = JSON.parse(savedLocal);
+                            const existingIds = new Set(rawData.map(r => String(r.participant_id || r.id || '').toLowerCase()));
+                            const existingRegs = new Set(rawData.map(r => String(r.register_number || '').trim().toLowerCase()));
+                            for (const loc of localItems) {
+                                const locId = String(loc.participant_id || loc.id || '').toLowerCase();
+                                const locReg = String(loc.register_number || loc.registerNumber || '').trim().toLowerCase();
+                                if ((!locId || !existingIds.has(locId)) && (!locReg || !existingRegs.has(locReg))) {
+                                    rawData.unshift(loc);
+                                    if (locId) existingIds.add(locId);
+                                    if (locReg) existingRegs.add(locReg);
+                                }
                             }
                         }
+                    } catch (lsErr) {
+                        console.warn("Local storage fallback warning:", lsErr);
                     }
-                } catch (lsErr) {
-                    console.warn("Local storage merge warning:", lsErr);
                 }
             } else {
                 // "All Events" aggregated fetch
-                const allTables = allEvents.map(e => getEventTableNames(e.title).participantsTable);
+                const allTables = Array.from(new Set(["participants_ignite2k26", ...allEvents.map(e => e.participantsTable || getEventTableNames(e.title).participantsTable)]));
                 for (const tName of allTables) {
                     try {
                         const hasT = await checkTableExists(tName);
@@ -302,10 +315,7 @@ function MailsContent() {
         let lastErrorMessage = "";
         let fatalErrorCount = 0;
 
-        const windowUrl = window.location.origin;
-        const defaultUrl = windowUrl.includes('localhost')
-            ? `http://10.136.9.91:3000`
-            : windowUrl;
+        const defaultUrl = typeof window !== "undefined" ? window.location.origin : "";
 
         const eventTitle = selectedEvent ? selectedEvent.title : "Vishaka 2026";
         const eventVenue = selectedEvent?.venue || "Main Auditorium";

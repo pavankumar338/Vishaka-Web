@@ -64,6 +64,12 @@ export default function AdminEventsDashboard() {
     useEffect(() => {
         const channel = supabase
             .channel('admin-events-live')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'participants_ignite2k26' }, () => {
+                fetchParticipantsOnly();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'check_in_logs_ignite2k26' }, () => {
+                fetchParticipantsOnly();
+            })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
                 fetchParticipantsOnly();
             })
@@ -71,7 +77,7 @@ export default function AdminEventsDashboard() {
                 fetchParticipantsOnly();
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
-                loadEventsOnly();
+                loadAllData();
             })
             .subscribe();
 
@@ -110,61 +116,108 @@ export default function AdminEventsDashboard() {
             let allParticipants: any[] = [];
             let allCheckedInIds = new Set<string>();
 
-            // 1. Try unified table if it exists
-            const hasUnified = await checkTableExists('participants');
-            if (hasUnified) {
+            // 1. Query all dedicated event tables (including participants_ignite2k26 by default)
+            const tablePairs = new Map<string, string>();
+            tablePairs.set('participants_ignite2k26', 'check_in_logs_ignite2k26');
+
+            for (const evt of evts) {
+                const { participantsTable, checkInTable } = getEventTableNames(evt.title);
+                const pT = evt.participantsTable || participantsTable;
+                const cT = evt.checkInTable || checkInTable;
+                tablePairs.set(pT, cT);
+            }
+
+            for (const [pTable, cTable] of Array.from(tablePairs.entries())) {
                 try {
+                    const exists = await checkTableExists(pTable);
+                    if (exists) {
+                        const pRes = await supabase.from(pTable).select('*');
+                        let logData: any[] = [];
+                        const hasLogTable = await checkTableExists(cTable);
+                        if (hasLogTable) {
+                            const lRes = await supabase.from(cTable).select('participant_id');
+                            if (lRes.data) logData = lRes.data;
+                        }
+
+                        if (pRes.data) {
+                            const existingIds = new Set(allParticipants.map((p: any) => p.participant_id || p.id));
+                            for (const row of pRes.data) {
+                                const pid = row.participant_id || row.id;
+                                if (pid && !existingIds.has(pid)) {
+                                    allParticipants.push({
+                                        ...row,
+                                        source_table: pTable,
+                                        event: row.event || (pTable.includes('ignite') ? 'Ignite2k26' : 'General')
+                                    });
+                                    existingIds.add(pid);
+                                }
+                            }
+                        }
+                        if (logData.length > 0) {
+                            logData.forEach((l: any) => {
+                                if (l && l.participant_id) allCheckedInIds.add(l.participant_id);
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Error querying table pair ${pTable}:`, e);
+                }
+            }
+
+            // 2. Try unified table if it exists
+            try {
+                const hasUnified = await checkTableExists('participants');
+                if (hasUnified) {
                     const [pRes, logRes] = await Promise.all([
                         supabase.from('participants').select('*'),
                         supabase.from('check_in_logs').select('participant_id')
                     ]);
-                    if (pRes.data) allParticipants = [...pRes.data];
-                    if (logRes.data) (logRes.data as any[]).forEach(l => allCheckedInIds.add(l.participant_id));
-                } catch (e) {
-                    console.warn("Unified table query warning:", e);
-                }
-            }
-
-            // 2. Query dedicated event tables
-            for (const evt of evts) {
-                const { participantsTable, checkInTable } = getEventTableNames(evt.title);
-                try {
-                    const exists = await checkTableExists(participantsTable);
-                    if (exists) {
-                        const [pRes, logRes] = await Promise.all([
-                            supabase.from(participantsTable).select('*'),
-                            supabase.from(checkInTable).select('participant_id')
-                        ]);
-                        if (pRes.data) {
-                            const existingIds = new Set(allParticipants.map((p: any) => p.participant_id || p.id));
-                            for (const row of pRes.data) {
-                                if (!existingIds.has(row.participant_id) && !existingIds.has(row.id)) {
-                                    allParticipants.push({ ...row, event: row.event || evt.title });
-                                    existingIds.add(row.participant_id || row.id);
-                                }
+                    if (pRes.data) {
+                        const existingIds = new Set(allParticipants.map((p: any) => p.participant_id || p.id));
+                        for (const row of pRes.data) {
+                            const pid = row.participant_id || row.id;
+                            if (pid && !existingIds.has(pid)) {
+                                allParticipants.push(row);
+                                existingIds.add(pid);
                             }
                         }
-                        if (logRes.data) {
-                            (logRes.data as any[]).forEach(l => allCheckedInIds.add(l.participant_id));
-                        }
                     }
-                } catch (e) {
-                    console.warn(`Error fetching ${participantsTable}:`, e);
+                    if (logRes.data) {
+                        (logRes.data as any[]).forEach(l => allCheckedInIds.add(l.participant_id));
+                    }
                 }
-            }
+            } catch (e) {}
 
-            // 3. Merge localStorage caches
+            // 3. Reconcile localStorage caches with live database truth
             if (typeof window !== 'undefined') {
                 try {
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i);
-                        if (key && key.startsWith('local_participants_')) {
-                            const items = JSON.parse(localStorage.getItem(key) || '[]');
-                            const existingIds = new Set(allParticipants.map((p: any) => p.participant_id || p.id));
-                            for (const row of items) {
-                                if (!existingIds.has(row.participant_id) && !existingIds.has(row.id)) {
-                                    allParticipants.push(row);
-                                    existingIds.add(row.participant_id || row.id);
+                    if (allParticipants.length > 0) {
+                        // Live database is authoritative: prune stale local caches so they don't ghost-inflate counts
+                        const keysToRemove: string[] = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            if (key && key.startsWith('local_participants_')) {
+                                keysToRemove.push(key);
+                            }
+                        }
+                        keysToRemove.forEach(k => localStorage.removeItem(k));
+                    } else {
+                        // Fallback only if database returned 0 records or is offline
+                        const existingIds = new Set(allParticipants.map((p: any) => String(p.participant_id || p.id || '').toLowerCase()));
+                        const existingRegs = new Set(allParticipants.map((p: any) => String(p.register_number || '').trim().toLowerCase()));
+
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            if (key && key.startsWith('local_participants_')) {
+                                const items = JSON.parse(localStorage.getItem(key) || '[]');
+                                for (const row of items) {
+                                    const pid = String(row.participant_id || row.id || '').toLowerCase();
+                                    const reg = String(row.register_number || row.registerNumber || '').trim().toLowerCase();
+                                    if ((!pid || !existingIds.has(pid)) && (!reg || !existingRegs.has(reg))) {
+                                        allParticipants.push(row);
+                                        if (pid) existingIds.add(pid);
+                                        if (reg) existingRegs.add(reg);
+                                    }
                                 }
                             }
                         }
@@ -190,6 +243,10 @@ export default function AdminEventsDashboard() {
 
             const matched = participants.filter((p: any) => {
                 const pEvent = (p.event || "").trim().toLowerCase();
+                const pSource = (p.source_table || "").toLowerCase();
+                if (evt.id === "ignite2k26-mvi537sm" || /ignite/i.test(evtCode) || /ignite/i.test(evtTitle)) {
+                    return /ignite/i.test(pEvent) || /ignite/i.test(pSource);
+                }
                 if (isMainSymposium) {
                     return !pEvent || /vishaka/i.test(pEvent) || /splash/i.test(pEvent) || pEvent.includes(evtCode);
                 }
