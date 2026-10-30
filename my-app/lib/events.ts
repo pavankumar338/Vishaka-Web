@@ -19,80 +19,11 @@ export const DEFAULT_EVENTS: EventItem[] = [
     checkInTable: "check_in_logs_ignite2k26",
     tablesCreated: true,
     createdAt: "2026-10-21T13:20:01.846+00:00",
-  },
-  {
-    id: "vishaka-2026",
-    title: "Vishaka 2K26 Main Symposium",
-    code: "VISHAKA-2026",
-    category: "Symposium",
-    description: "The premier annual national-level technical and cultural symposium. Keynotes, project expos, and flagship competitive tracks.",
-    venue: "Main Auditorium & Central Plaza",
-    date: "2026-03-15",
-    time: "09:00 AM - 05:00 PM",
-    status: "active",
-    maxCapacity: 500,
-    colorTheme: "#f59e0b",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "codesprint-26",
-    title: "CodeSprint Hackathon",
-    code: "CODESPRINT-26",
-    category: "Technical",
-    description: "24-hour intense hackathon solving real-world AI, Web3, and IoT industry challenges. High-stakes developer battle.",
-    venue: "Computing Hub Labs 4 & 5",
-    date: "2026-03-15",
-    time: "10:00 AM - Next Day",
-    status: "active",
-    maxCapacity: 150,
-    colorTheme: "#3b82f6",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "robowars-26",
-    title: "RoboWars: Arena Combat",
-    code: "ROBOWARS-26",
-    category: "Technical",
-    description: "Wired and wireless heavyweight combat robotics fighting to the wire in an armored enclosed battle arena.",
-    venue: "SAC Open Arena",
-    date: "2026-03-16",
-    time: "11:30 AM - 04:30 PM",
-    status: "upcoming",
-    maxCapacity: 120,
-    colorTheme: "#ef4444",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "nritya-culturals",
-    title: "Nritya: Mega Cultural Night",
-    code: "NRITYA-CULT",
-    category: "Cultural",
-    description: "Electrifying dance battles, battle of the bands, classical rhythm, and celebrity musical extravaganza.",
-    venue: "Open Air Amphitheatre",
-    date: "2026-03-16",
-    time: "05:30 PM - 10:00 PM",
-    status: "upcoming",
-    maxCapacity: 600,
-    colorTheme: "#ec4899",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "valo-esports",
-    title: "Valorant & BGMI Esports Arena",
-    code: "VALO-ARENA",
-    category: "Gaming",
-    description: "High-octane LAN gaming tournament featuring top collegiate squads competing on 240Hz tournament rigs.",
-    venue: "Multimedia High-Tech Lab",
-    date: "2026-03-15",
-    time: "01:00 PM - 07:00 PM",
-    status: "active",
-    maxCapacity: 100,
-    colorTheme: "#10b981",
-    createdAt: new Date().toISOString(),
   }
 ];
 
 const STORAGE_KEY = "vishaka_events_data";
+const MOCK_EVENT_IDS = new Set(['vishaka-2026', 'codesprint-26', 'robowars-26', 'nritya-culturals', 'valo-esports']);
 
 function getLocalEvents(): EventItem[] {
   if (typeof window === "undefined") return DEFAULT_EVENTS;
@@ -107,7 +38,12 @@ function getLocalEvents(): EventItem[] {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_EVENTS));
       return DEFAULT_EVENTS;
     }
-    return parsed;
+    // Filter out mock events if any were previously cached in localStorage
+    const clean = parsed.filter(e => e && e.id && !MOCK_EVENT_IDS.has(e.id));
+    if (clean.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(clean.length > 0 ? clean : DEFAULT_EVENTS));
+    }
+    return clean.length > 0 ? clean : DEFAULT_EVENTS;
   } catch {
     return DEFAULT_EVENTS;
   }
@@ -150,22 +86,17 @@ export async function getEvents(): Promise<EventItem[]> {
         };
       });
 
-      // Merge with default events so none are missing
-      const existingIds = new Set(mapped.map(m => (m.id || '').toLowerCase()));
-      for (const def of DEFAULT_EVENTS) {
-        if (!existingIds.has((def.id || '').toLowerCase()) && !existingIds.has((def.code || '').toLowerCase())) {
-          mapped.push(def);
-        }
-      }
+      // Filter out any mock event IDs if present
+      const cleanMapped = mapped.filter(m => !MOCK_EVENT_IDS.has(m.id));
 
-      saveLocalEvents(mapped);
-      return mapped;
+      saveLocalEvents(cleanMapped);
+      return cleanMapped.length > 0 ? cleanMapped : mapped;
     }
   } catch (err) {
     console.warn("Supabase events fetch skipped/failed, using local persistent storage:", err);
   }
 
-  // Fallback to local storage with defaults
+  // Fallback to clean local storage or DEFAULT_EVENTS
   return getLocalEvents();
 }
 

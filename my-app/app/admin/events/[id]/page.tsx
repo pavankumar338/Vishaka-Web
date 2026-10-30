@@ -42,7 +42,7 @@ type CsvRow = {
 export default function EventCommandCenterPage() {
     const params = useParams();
     const router = useRouter();
-    const eventId = (params?.id as string) || "vishaka-2026";
+    const eventId = (params?.id as string) || "ignite2k26-mvi537sm";
 
     const [currentEvent, setCurrentEvent] = useState<EventItem | null>(null);
     const [allEvents, setAllEvents] = useState<EventItem[]>([]);
